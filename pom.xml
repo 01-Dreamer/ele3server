@@ -11,6 +11,21 @@
 	<groupId>top.zxylearn</groupId>
 	<artifactId>ele3server</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
+	<packaging>pom</packaging>
+	<modules>
+		<module>common-service</module>
+		<module>gateway-service</module>
+		<module>auth-service</module>
+		<module>shop-service</module>
+		<module>location-service</module>
+		<module>order-service</module>
+		<module>payment-service</module>
+		<module>file-service</module>
+		<module>risk-service</module>
+		<module>recommend-service</module>
+		<module>message-service</module>
+		<module>agent-service</module>
+	</modules>
 	<name>ele3server</name>
 	<description/>
 	<url/>
