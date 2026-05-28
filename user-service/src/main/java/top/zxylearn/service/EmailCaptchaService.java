@@ -15,7 +15,7 @@ public class EmailCaptchaService {
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
     private static final Duration CODE_TTL = Duration.ofMinutes(5);
-    private static final String CODE_KEY_PREFIX = "risk:email:captcha:";
+    private static final String CODE_KEY_PREFIX = "user:auth:email:captcha:";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final JavaMailSender mailSender;
@@ -28,8 +28,14 @@ public class EmailCaptchaService {
 
     public void sendCode(String email) {
         validateEmail(email);
+        String key = buildCodeKey(email);
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(key))) {
+            throw new IllegalArgumentException("验证码已发送，请稍后再试");
+        }
+
         String code = generateCode();
-        redisTemplate.opsForValue().set(buildCodeKey(email), code, CODE_TTL);
+        redisTemplate.opsForValue().set(key, code, CODE_TTL);
+
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom("2711339704@qq.com");
         message.setTo(email);
@@ -43,18 +49,20 @@ public class EmailCaptchaService {
         if (!StringUtils.hasText(code)) {
             return false;
         }
+
         String key = buildCodeKey(email);
         String cachedCode = redisTemplate.opsForValue().get(key);
         if (!code.equals(cachedCode)) {
             return false;
         }
+
         redisTemplate.delete(key);
         return true;
     }
 
     private void validateEmail(String email) {
         if (!StringUtils.hasText(email) || !EMAIL_PATTERN.matcher(email).matches()) {
-            throw new IllegalArgumentException("email format is invalid");
+            throw new IllegalArgumentException("邮箱格式不正确");
         }
     }
 

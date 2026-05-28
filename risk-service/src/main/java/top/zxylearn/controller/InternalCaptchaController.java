@@ -1,17 +1,16 @@
 package top.zxylearn.controller;
 
 import cloud.tianai.captcha.common.response.ApiResponse;
+import cloud.tianai.captcha.validator.common.model.dto.ImageCaptchaTrack;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.zxylearn.dto.EmailCaptchaSendRequest;
-import top.zxylearn.dto.EmailCaptchaVerifyRequest;
 import top.zxylearn.dto.SliderCaptchaVerifyRequest;
 import top.zxylearn.result.Result;
-import top.zxylearn.service.EmailCaptchaService;
 import top.zxylearn.service.ImageCaptchaService;
 
 import java.util.Collections;
@@ -22,56 +21,43 @@ import java.util.Collections;
 public class InternalCaptchaController {
 
     private final ImageCaptchaService imageCaptchaService;
-    private final EmailCaptchaService emailCaptchaService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public InternalCaptchaController(ImageCaptchaService imageCaptchaService, EmailCaptchaService emailCaptchaService) {
+    public InternalCaptchaController(ImageCaptchaService imageCaptchaService) {
         this.imageCaptchaService = imageCaptchaService;
-        this.emailCaptchaService = emailCaptchaService;
     }
 
     @Operation(summary = "校验滑块验证码")
     @PostMapping("/slider/verify")
     public Result<?> verifySliderCaptcha(@RequestBody SliderCaptchaVerifyRequest request) {
         if (request == null || request.getId() == null || request.getData() == null) {
-            return Result.fail(400, "captcha id and track data are required");
-        }
-        ApiResponse<?> response = imageCaptchaService.verifySliderCaptcha(request.getId(), request.getData());
-        if (response.isSuccess()) {
-            return Result.success(Collections.singletonMap("id", request.getId()));
-        }
-        return Result.fail(400, response.getMsg());
-    }
-
-    @Operation(summary = "获取邮箱验证码")
-    @PostMapping("/email")
-    public Result<?> sendEmailCaptcha(@RequestBody EmailCaptchaSendRequest request) {
-        if (request == null || request.getEmail() == null) {
-            return Result.fail(400, "email is required");
+            return Result.fail(400, "验证码 ID 和滑动轨迹不能为空");
         }
         try {
-            emailCaptchaService.sendCode(request.getEmail());
-            return Result.success(Collections.singletonMap("email", request.getEmail()));
-        } catch (IllegalArgumentException ex) {
-            return Result.fail(400, ex.getMessage());
-        } catch (RuntimeException ex) {
-            return Result.fail(500, "email captcha send failed");
-        }
-    }
-
-    @Operation(summary = "校验邮箱验证码")
-    @PostMapping("/email/verify")
-    public Result<?> verifyEmailCaptcha(@RequestBody EmailCaptchaVerifyRequest request) {
-        if (request == null || request.getEmail() == null || request.getCode() == null) {
-            return Result.fail(400, "email and code are required");
-        }
-        try {
-            boolean verified = emailCaptchaService.verifyCode(request.getEmail(), request.getCode());
-            if (verified) {
-                return Result.success(Collections.singletonMap("email", request.getEmail()));
+            ImageCaptchaTrack track = objectMapper.convertValue(request.getData(), ImageCaptchaTrack.class);
+            ApiResponse<?> response = imageCaptchaService.verifySliderCaptcha(request.getId(), track);
+            if (response.isSuccess()) {
+                return Result.success(Collections.singletonMap("id", request.getId()));
             }
-            return Result.fail(400, "email captcha code is invalid");
+            return Result.fail(400, translateCaptchaMessage(response.getMsg()));
         } catch (IllegalArgumentException ex) {
-            return Result.fail(400, ex.getMessage());
+            return Result.fail(400, translateCaptchaMessage(ex.getMessage()));
         }
+    }
+
+    private String translateCaptchaMessage(String message) {
+        if (message == null) {
+            return "滑块验证码校验失败";
+        }
+        return switch (message) {
+            case "basic check fail" -> "滑动轨迹校验失败";
+            case "trackList must not be null" -> "滑动轨迹不能为空";
+            case "bgImageWidth must not be null" -> "背景图宽度不能为空";
+            case "bgImageHeight must not be null" -> "背景图高度不能为空";
+            case "startSlidingTime must not be null" -> "滑动开始时间不能为空";
+            case "endSlidingTime must not be null" -> "滑动结束时间不能为空";
+            case "track[x,y,t,type] must not be null" -> "滑动轨迹点数据不完整";
+            default -> message;
+        };
     }
 }

@@ -30,13 +30,13 @@ public class InternalTokenInterceptor implements HandlerInterceptor {
             throws IOException {
         String configuredToken = internalTokenProperties.getToken();
         if (!StringUtils.hasText(configuredToken)) {
-            writeUnauthorized(response, "internal token is not configured");
+            writeUnauthorized(response, "内部访问令牌未配置");
             return false;
         }
 
         String requestToken = request.getHeader(INTERNAL_TOKEN_HEADER);
         if (!configuredToken.equals(requestToken)) {
-            writeUnauthorized(response, "invalid internal token");
+            writeUnauthorized(response, "内部访问令牌无效");
             return false;
         }
         return true;
