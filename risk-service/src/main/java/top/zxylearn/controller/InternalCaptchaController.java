@@ -9,13 +9,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.zxylearn.dto.SliderCaptchaVerifyRequest;
+import top.zxylearn.dto.CaptchaVerifyRequest;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.ImageCaptchaService;
 
 import java.util.Collections;
+import java.util.Locale;
 
-@Tag(name = "内部验证码")
+@Tag(name = "校验验证码")
 @RestController
 @RequestMapping("/internal/risk/captcha")
 public class InternalCaptchaController {
@@ -27,9 +28,23 @@ public class InternalCaptchaController {
         this.imageCaptchaService = imageCaptchaService;
     }
 
-    @Operation(summary = "校验滑块验证码")
-    @PostMapping("/slider/verify")
-    public Result<?> verifySliderCaptcha(@RequestBody SliderCaptchaVerifyRequest request) {
+    @Operation(summary = "校验验证码")
+    @PostMapping("/verify")
+    public Result<?> verifyCaptcha(@RequestBody CaptchaVerifyRequest request) {
+        if (request == null || request.getId() == null || request.getId().isBlank()) {
+            return Result.fail(400, "验证码 ID 不能为空");
+        }
+        String type = resolveCaptchaType(request);
+        if (ImageCaptchaService.TEXT_CAPTCHA_TYPE.equals(type)) {
+            return verifyTextCaptcha(request);
+        }
+        if ("SLIDER".equals(type)) {
+            return verifySliderCaptcha(request);
+        }
+        return Result.fail(400, "验证码类型不支持");
+    }
+
+    private Result<?> verifySliderCaptcha(CaptchaVerifyRequest request) {
         if (request == null || request.getId() == null || request.getData() == null) {
             return Result.fail(400, "验证码 ID 和滑动轨迹不能为空");
         }
@@ -43,6 +58,27 @@ public class InternalCaptchaController {
         } catch (IllegalArgumentException ex) {
             return Result.fail(400, translateCaptchaMessage(ex.getMessage()));
         }
+    }
+
+    private Result<?> verifyTextCaptcha(CaptchaVerifyRequest request) {
+        try {
+            if (imageCaptchaService.verifyTextCaptcha(request.getId(), request.getCode())) {
+                return Result.success(Collections.singletonMap("id", request.getId()));
+            }
+            return Result.fail(400, "图片验证码错误或已过期");
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        }
+    }
+
+    private String resolveCaptchaType(CaptchaVerifyRequest request) {
+        if (request.getType() != null && !request.getType().isBlank()) {
+            return request.getType().trim().toUpperCase(Locale.ROOT);
+        }
+        if (request.getCode() != null && !request.getCode().isBlank()) {
+            return ImageCaptchaService.TEXT_CAPTCHA_TYPE;
+        }
+        return "SLIDER";
     }
 
     private String translateCaptchaMessage(String message) {
