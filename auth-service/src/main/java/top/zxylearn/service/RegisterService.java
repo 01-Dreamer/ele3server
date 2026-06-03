@@ -7,14 +7,12 @@ import org.springframework.stereotype.Service;
 import top.zxylearn.dto.RegisterRequest;
 import top.zxylearn.entity.AuthAccount;
 import top.zxylearn.mapper.AuthAccountMapper;
+import top.zxylearn.util.PasswordValidator;
 import top.zxylearn.vo.RegisterVO;
-
-import java.util.regex.Pattern;
 
 @Service
 public class RegisterService {
 
-    private static final Pattern PASSWORD_PATTERN = Pattern.compile("^[A-Za-z0-9]{6,20}$");
     private static final String DEFAULT_ROLE = "USER";
     private static final int NORMAL_STATUS = 1;
 
@@ -31,7 +29,7 @@ public class RegisterService {
         if (request == null) {
             throw new IllegalArgumentException("请求参数不能为空");
         }
-        checkPassword(request.getPassword());
+        PasswordValidator.checkPassword(request.getPassword());
         String email = emailCaptchaService.verifyRegisterEmailCaptcha(request.getEmail(), request.getEmailCaptcha());
         checkEmailNotRegistered(email);
 
@@ -48,15 +46,6 @@ public class RegisterService {
         }
 
         return new RegisterVO(String.valueOf(account.getUserId()), account.getEmail(), account.getRole(), account.getStatus());
-    }
-
-    private void checkPassword(String password) {
-        if (password == null || password.isBlank()) {
-            throw new IllegalArgumentException("密码不能为空");
-        }
-        if (!PASSWORD_PATTERN.matcher(password).matches()) {
-            throw new IllegalArgumentException("密码只能包含字母和数字，长度为 6-20 位");
-        }
     }
 
     private void checkEmailNotRegistered(String email) {

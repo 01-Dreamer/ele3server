@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 @Schema(description = "登录用户信息")
 public class LoginUserVO {
 
-    @Schema(description = "用户 ID，字符串格式避免前端精度丢失")
+    @Schema(description = "用户 ID")
     private String userId;
 
     @Schema(description = "邮箱")

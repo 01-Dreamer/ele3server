@@ -55,8 +55,36 @@ public class EmailCaptchaService {
         return sendEmailCaptcha(request.getEmail(), EmailCaptchaScene.REGISTER);
     }
 
+    public long sendForgotPasswordEmailCaptcha(EmailCaptchaSendRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求参数不能为空");
+        }
+        verifySliderCaptcha(request);
+        return sendEmailCaptcha(request.getEmail(), EmailCaptchaScene.FORGOT_PASSWORD);
+    }
+
     public String verifyRegisterEmailCaptcha(String email, String code) {
         return verifyEmailCaptcha(email, code, EmailCaptchaScene.REGISTER);
+    }
+
+    public long sendChangePasswordEmailCaptcha(String email) {
+        return sendEmailCaptcha(email, EmailCaptchaScene.CHANGE_PASSWORD);
+    }
+
+    public boolean verifyChangePasswordEmailCaptcha(String email, String code) {
+        if (code == null || code.isBlank()) {
+            return false;
+        }
+        try {
+            verifyEmailCaptcha(email, code, EmailCaptchaScene.CHANGE_PASSWORD);
+            return true;
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
+    public String verifyForgotPasswordEmailCaptcha(String email, String code) {
+        return verifyEmailCaptcha(email, code, EmailCaptchaScene.FORGOT_PASSWORD);
     }
 
     private long sendEmailCaptcha(String email, EmailCaptchaScene scene) {
@@ -65,6 +93,9 @@ public class EmailCaptchaService {
 
         if (scene == EmailCaptchaScene.REGISTER) {
             checkEmailNotRegistered(normalizedEmail);
+        }
+        if (scene == EmailCaptchaScene.FORGOT_PASSWORD) {
+            checkEmailRegistered(normalizedEmail);
         }
 
         String key = buildEmailCaptchaKey(scene, normalizedEmail);
@@ -142,6 +173,15 @@ public class EmailCaptchaService {
         );
         if (count != null && count > 0) {
             throw new IllegalArgumentException("邮箱已注册");
+        }
+    }
+
+    private void checkEmailRegistered(String email) {
+        Long count = authAccountMapper.selectCount(
+                new LambdaQueryWrapper<AuthAccount>().eq(AuthAccount::getEmail, email)
+        );
+        if (count == null || count == 0) {
+            throw new IllegalArgumentException("邮箱未注册");
         }
     }
 

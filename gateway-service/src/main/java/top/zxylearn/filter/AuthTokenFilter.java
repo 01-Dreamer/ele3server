@@ -138,7 +138,11 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     }
 
     private boolean isPublicPath(String path) {
-        return path.startsWith("/api/auth/")
+        return path.equals("/api/auth/register/email-captcha")
+                || path.equals("/api/auth/register")
+                || path.equals("/api/auth/login")
+                || path.equals("/api/auth/forgot-password/email-captcha")
+                || path.equals("/api/auth/forgot-password")
                 || path.startsWith("/api/risk/captcha/");
     }
 

@@ -2,7 +2,9 @@ package top.zxylearn.enums;
 
 public enum EmailCaptchaScene {
 
-    REGISTER("register", "注册");
+    REGISTER("register", "注册"),
+    CHANGE_PASSWORD("change-password", "修改密码"),
+    FORGOT_PASSWORD("forgot-password", "忘记密码");
 
     private final String key;
     private final String description;

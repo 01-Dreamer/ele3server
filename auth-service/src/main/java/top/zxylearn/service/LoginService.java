@@ -7,9 +7,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import top.zxylearn.client.RiskCaptchaClient;
 import top.zxylearn.dto.LoginRequest;
+import top.zxylearn.dto.RiskCaptchaVerifyRequest;
 import top.zxylearn.entity.AuthAccount;
 import top.zxylearn.mapper.AuthAccountMapper;
+import top.zxylearn.result.Result;
 import top.zxylearn.vo.LoginTokenVO;
 import top.zxylearn.vo.LoginUserVO;
 import top.zxylearn.vo.LoginVO;
@@ -28,18 +31,22 @@ public class LoginService {
     private static final String LOGIN_TOKEN_KEY_PREFIX = "auth:login:";
     private static final String LOGIN_USER_KEY_PREFIX = "auth:user:";
     private static final String LOGIN_TOKENS_KEY_PREFIX = "auth:login:tokens:";
+    private static final String IMAGE_CAPTCHA_TYPE = "IMAGE";
     private static final DateTimeFormatter LOGIN_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final AuthAccountMapper authAccountMapper;
+    private final RiskCaptchaClient riskCaptchaClient;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Duration loginTtl;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public LoginService(AuthAccountMapper authAccountMapper,
+                        RiskCaptchaClient riskCaptchaClient,
                         StringRedisTemplate stringRedisTemplate,
                         @Value("${auth.login.ttl:7d}") Duration loginTtl) {
         this.authAccountMapper = authAccountMapper;
+        this.riskCaptchaClient = riskCaptchaClient;
         this.stringRedisTemplate = stringRedisTemplate;
         this.loginTtl = loginTtl;
     }
@@ -50,6 +57,7 @@ public class LoginService {
         }
         String email = checkEmail(request.getEmail());
         String password = checkPassword(request.getPassword());
+        verifyImageCaptcha(request);
 
         AuthAccount account = authAccountMapper.selectOne(
                 new LambdaQueryWrapper<AuthAccount>().eq(AuthAccount::getEmail, email)
@@ -115,6 +123,30 @@ public class LoginService {
             throw new IllegalArgumentException("密码不能为空");
         }
         return password;
+    }
+
+    private void verifyImageCaptcha(LoginRequest request) {
+        if (request.getCaptchaId() == null || request.getCaptchaId().isBlank()
+                || request.getCaptchaCode() == null || request.getCaptchaCode().isBlank()) {
+            throw new IllegalArgumentException("图形验证码不能为空");
+        }
+        RiskCaptchaVerifyRequest verifyRequest = new RiskCaptchaVerifyRequest(
+                request.getCaptchaId(),
+                IMAGE_CAPTCHA_TYPE,
+                request.getCaptchaCode(),
+                null
+        );
+        try {
+            Result<?> result = riskCaptchaClient.verifyCaptcha(verifyRequest);
+            if (result == null || result.getCode() == null || result.getCode() != 200) {
+                String message = result == null || result.getMessage() == null ? "图形验证码校验失败" : result.getMessage();
+                throw new IllegalArgumentException(message);
+            }
+        } catch (IllegalArgumentException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            return;
+        }
     }
 
     private String toJson(LoginUserVO userInfo) {
