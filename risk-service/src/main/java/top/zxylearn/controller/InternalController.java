@@ -16,15 +16,15 @@ import top.zxylearn.service.ImageCaptchaService;
 import java.util.Collections;
 import java.util.Locale;
 
-@Tag(name = "校验验证码")
+@Tag(name = "验证码内部接口")
 @RestController
 @RequestMapping("/internal/risk/captcha")
-public class InternalCaptchaController {
+public class InternalController {
 
     private final ImageCaptchaService imageCaptchaService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public InternalCaptchaController(ImageCaptchaService imageCaptchaService) {
+    public InternalController(ImageCaptchaService imageCaptchaService) {
         this.imageCaptchaService = imageCaptchaService;
     }
 

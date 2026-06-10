@@ -126,10 +126,6 @@ public class LoginService {
     }
 
     private void verifyImageCaptcha(LoginRequest request) {
-        if (request.getCaptchaId() == null || request.getCaptchaId().isBlank()
-                || request.getCaptchaCode() == null || request.getCaptchaCode().isBlank()) {
-            throw new IllegalArgumentException("图形验证码不能为空");
-        }
         RiskCaptchaVerifyRequest verifyRequest = new RiskCaptchaVerifyRequest(
                 request.getCaptchaId(),
                 IMAGE_CAPTCHA_TYPE,

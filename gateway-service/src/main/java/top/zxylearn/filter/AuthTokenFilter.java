@@ -8,11 +8,15 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import top.zxylearn.constant.RiskMqConstants;
+import top.zxylearn.dto.risk.HttpRiskEventDTO;
+import top.zxylearn.result.Result;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +25,8 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -36,10 +42,12 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private static final String ADMIN_ROLE = "ADMIN";
 
     private final StringRedisTemplate stringRedisTemplate;
+    private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public AuthTokenFilter(StringRedisTemplate stringRedisTemplate) {
+    public AuthTokenFilter(StringRedisTemplate stringRedisTemplate, RabbitTemplate rabbitTemplate) {
         this.stringRedisTemplate = stringRedisTemplate;
+        this.rabbitTemplate = rabbitTemplate;
     }
 
     @Override
@@ -54,13 +62,16 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         String token = extractToken(request.getHeader(AUTHORIZATION_HEADER));
 
+        if (isPublicPath(path)) {
+            publishRiskEvent(request, null);
+            filterChain.doFilter(new UserIdHeaderRequestWrapper(request, null), response);
+            return;
+        }
+
         if (!hasText(token)) {
+            publishRiskEvent(request, null);
             if (isAdminPath(path)) {
                 writeError(response, 401, "请先登录");
-                return;
-            }
-            if (isPublicPath(path)) {
-                filterChain.doFilter(new UserIdHeaderRequestWrapper(request, null), response);
                 return;
             }
             writeError(response, 401, "请先登录");
@@ -69,23 +80,28 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
         LoginToken loginToken = getLoginToken(token);
         if (loginToken == null || !hasText(loginToken.userId())) {
+            publishRiskEvent(request, null);
             writeError(response, 401, "登录状态已失效，请重新登录");
             return;
         }
 
         LoginUser loginUser = getLoginUser(loginToken.userId());
         if (loginUser == null) {
+            publishRiskEvent(request, loginToken.userId());
             writeError(response, 401, "登录状态已失效，请重新登录");
             return;
         }
         if (loginUser.status() == BANNED_STATUS) {
+            publishRiskEvent(request, loginToken.userId());
             writeError(response, 403, "账号已被封禁");
             return;
         }
         if (loginUser.status() != NORMAL_STATUS) {
+            publishRiskEvent(request, loginToken.userId());
             writeError(response, 403, "账号状态异常");
             return;
         }
+        publishRiskEvent(request, loginToken.userId());
         if (isAdminPath(path) && !ADMIN_ROLE.equalsIgnoreCase(loginUser.role())) {
             writeError(response, 403, "无管理员权限");
             return;
@@ -137,13 +153,70 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         }
     }
 
+    private void publishRiskEvent(HttpServletRequest request, String userId) {
+        try {
+            HttpRiskEventDTO event = new HttpRiskEventDTO();
+            event.setEventId(UUID.randomUUID().toString());
+            event.setUserId(parseUserId(userId));
+            event.setIp(getClientIp(request));
+            event.setMethod(request.getMethod());
+            event.setPath(request.getRequestURI());
+            event.setHeaders(buildHeaders(request));
+            event.setQueryParams(buildQueryParams(request));
+            event.setTimestamp(System.currentTimeMillis());
+            rabbitTemplate.convertAndSend(RiskMqConstants.RISK_EXCHANGE, RiskMqConstants.HTTP_ROUTING_KEY, event);
+        } catch (RuntimeException ex) {
+            // 风控事件投递失败不能阻塞主请求
+        }
+    }
+
+    private Long parseUserId(String userId) {
+        try {
+            return Long.valueOf(userId);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (hasText(forwardedFor)) {
+            return normalizeLocalIp(forwardedFor.split(",")[0].trim());
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (hasText(realIp)) {
+            return normalizeLocalIp(realIp.trim());
+        }
+        return normalizeLocalIp(request.getRemoteAddr());
+    }
+
+    private String normalizeLocalIp(String ip) {
+        if ("0:0:0:0:0:0:0:1".equals(ip) || "::1".equals(ip)) {
+            return "127.0.0.1";
+        }
+        return ip;
+    }
+
+    private Map<String, String> buildHeaders(HttpServletRequest request) {
+        Map<String, String> headers = new HashMap<>();
+        Enumeration<String> headerNames = request.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String name = headerNames.nextElement();
+            headers.put(name, Collections.list(request.getHeaders(name)).stream().collect(Collectors.joining(",")));
+        }
+        return headers;
+    }
+
+    private Map<String, String> buildQueryParams(HttpServletRequest request) {
+        Map<String, String> queryParams = new HashMap<>();
+        request.getParameterMap().forEach((name, values) -> {
+            queryParams.put(name, values == null ? "" : String.join(",", values));
+        });
+        return queryParams;
+    }
+
     private boolean isPublicPath(String path) {
-        return path.equals("/api/auth/register/email-captcha")
-                || path.equals("/api/auth/register")
-                || path.equals("/api/auth/login")
-                || path.equals("/api/auth/forgot-password/email-captcha")
-                || path.equals("/api/auth/forgot-password")
-                || path.startsWith("/api/risk/captcha/");
+        return path.matches("^/api/[^/]+/public(?:/.*)?$");
     }
 
     private boolean isAdminPath(String path) {
@@ -159,13 +232,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType("application/json;charset=UTF-8");
 
-        Map<String, Object> body = new HashMap<>();
-        body.put("code", code);
-        body.put("message", message);
-        body.put("data", null);
-        body.put("meta", null);
-        body.put("timestamp", System.currentTimeMillis());
-        response.getWriter().write(objectMapper.writeValueAsString(body));
+        response.getWriter().write(objectMapper.writeValueAsString(Result.fail(code, message)));
     }
 
     private record LoginToken(String userId) {

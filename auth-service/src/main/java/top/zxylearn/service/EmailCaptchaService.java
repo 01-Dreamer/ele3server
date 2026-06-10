@@ -67,7 +67,11 @@ public class EmailCaptchaService {
         return verifyEmailCaptcha(email, code, EmailCaptchaScene.REGISTER);
     }
 
-    public long sendChangePasswordEmailCaptcha(String email) {
+    public long sendChangePasswordEmailCaptcha(String email, EmailCaptchaSendRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求参数不能为空");
+        }
+        verifySliderCaptcha(request);
         return sendEmailCaptcha(email, EmailCaptchaScene.CHANGE_PASSWORD);
     }
 
@@ -116,9 +120,6 @@ public class EmailCaptchaService {
     }
 
     private void verifySliderCaptcha(EmailCaptchaSendRequest request) {
-        if (request.getCaptchaId() == null || request.getCaptchaId().isBlank() || request.getCaptchaData() == null) {
-            throw new IllegalArgumentException("滑块验证码不能为空");
-        }
         RiskCaptchaVerifyRequest verifyRequest = new RiskCaptchaVerifyRequest(
                 request.getCaptchaId(),
                 SLIDER_CAPTCHA_TYPE,

@@ -11,14 +11,14 @@ import top.zxylearn.result.Result;
 import top.zxylearn.service.ImageCaptchaService;
 import top.zxylearn.vo.TextCaptchaVO;
 
-@Tag(name = "获取验证码")
+@Tag(name = "验证码公开接口")
 @RestController
-@RequestMapping("/api/risk/captcha")
-public class ApiCaptchaController {
+@RequestMapping("/api/risk/public/captcha")
+public class PublicController {
 
     private final ImageCaptchaService imageCaptchaService;
 
-    public ApiCaptchaController(ImageCaptchaService imageCaptchaService) {
+    public PublicController(ImageCaptchaService imageCaptchaService) {
         this.imageCaptchaService = imageCaptchaService;
     }
 

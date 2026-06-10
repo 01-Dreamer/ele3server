@@ -6,10 +6,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.zxylearn.dto.ChangePasswordRequest;
 import top.zxylearn.dto.EmailCaptchaSendRequest;
 import top.zxylearn.dto.ForgotPasswordResetRequest;
 import top.zxylearn.dto.LoginRequest;
@@ -26,20 +24,20 @@ import top.zxylearn.vo.RegisterVO;
 import java.util.Collections;
 import java.util.Map;
 
-@Tag(name = "认证")
+@Tag(name = "认证公开接口")
 @RestController
-@RequestMapping("/api/auth")
-public class ApiAuthController {
+@RequestMapping("/api/auth/public")
+public class PublicController {
 
     private final EmailCaptchaService emailCaptchaService;
     private final RegisterService registerService;
     private final LoginService loginService;
     private final AuthPasswordService authPasswordService;
 
-    public ApiAuthController(EmailCaptchaService emailCaptchaService,
-                             RegisterService registerService,
-                             LoginService loginService,
-                             AuthPasswordService authPasswordService) {
+    public PublicController(EmailCaptchaService emailCaptchaService,
+                            RegisterService registerService,
+                            LoginService loginService,
+                            AuthPasswordService authPasswordService) {
         this.emailCaptchaService = emailCaptchaService;
         this.registerService = registerService;
         this.loginService = loginService;
@@ -106,33 +104,6 @@ public class ApiAuthController {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
             return Result.fail(500, "密码重置失败");
-        }
-    }
-
-    @Operation(summary = "修改密码")
-    @PutMapping("/change-password")
-    public Result<?> changePassword(@RequestHeader("X-User-Id") String userId,
-                                    @RequestBody ChangePasswordRequest request) {
-        try {
-            authPasswordService.changePassword(userId, request);
-            return Result.success();
-        } catch (IllegalArgumentException ex) {
-            return Result.fail(400, ex.getMessage());
-        } catch (RuntimeException ex) {
-            return Result.fail(500, "密码修改失败");
-        }
-    }
-
-    @Operation(summary = "获取修改密码邮箱验证码")
-    @PostMapping("/change-password/email-captcha")
-    public Result<Map<String, Long>> sendChangePasswordEmailCaptcha(@RequestHeader("X-User-Id") String userId) {
-        try {
-            long expireSeconds = authPasswordService.sendChangePasswordEmailCaptcha(userId);
-            return Result.success(Collections.singletonMap("expireSeconds", expireSeconds));
-        } catch (IllegalArgumentException ex) {
-            return Result.fail(400, ex.getMessage());
-        } catch (RuntimeException ex) {
-            return Result.fail(500, "修改密码邮箱验证码发送失败");
         }
     }
 }

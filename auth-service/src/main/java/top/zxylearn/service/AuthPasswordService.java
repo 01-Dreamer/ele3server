@@ -3,6 +3,7 @@ package top.zxylearn.service;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import top.zxylearn.dto.ChangePasswordRequest;
+import top.zxylearn.dto.EmailCaptchaSendRequest;
 import top.zxylearn.dto.ForgotPasswordResetRequest;
 import top.zxylearn.entity.AuthAccount;
 import top.zxylearn.mapper.AuthAccountMapper;
@@ -22,9 +23,9 @@ public class AuthPasswordService {
         this.emailCaptchaService = emailCaptchaService;
     }
 
-    public long sendChangePasswordEmailCaptcha(String userId) {
+    public long sendChangePasswordEmailCaptcha(String userId, EmailCaptchaSendRequest request) {
         AuthAccount account = getAvailableAccount(parseUserId(userId));
-        return emailCaptchaService.sendChangePasswordEmailCaptcha(account.getEmail());
+        return emailCaptchaService.sendChangePasswordEmailCaptcha(account.getEmail(), request);
     }
 
     public void changePassword(String userId, ChangePasswordRequest request) {
