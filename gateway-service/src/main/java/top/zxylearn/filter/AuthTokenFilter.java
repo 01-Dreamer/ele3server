@@ -8,6 +8,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -17,6 +19,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import top.zxylearn.constant.RiskMqConstants;
 import top.zxylearn.dto.risk.HttpRiskEventDTO;
 import top.zxylearn.result.Result;
+import top.zxylearn.util.IpUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +34,8 @@ import java.util.stream.Collectors;
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class AuthTokenFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthTokenFilter.class);
 
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String USER_ID_HEADER = "X-User-Id";
@@ -158,14 +163,17 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             HttpRiskEventDTO event = new HttpRiskEventDTO();
             event.setEventId(UUID.randomUUID().toString());
             event.setUserId(parseUserId(userId));
-            event.setIp(getClientIp(request));
+            event.setIp(IpUtils.getClientIp(request));
             event.setMethod(request.getMethod());
             event.setPath(request.getRequestURI());
             event.setHeaders(buildHeaders(request));
             event.setQueryParams(buildQueryParams(request));
             event.setTimestamp(System.currentTimeMillis());
             rabbitTemplate.convertAndSend(RiskMqConstants.RISK_EXCHANGE, RiskMqConstants.HTTP_ROUTING_KEY, event);
+            log.info("已投递HTTP风控事件 eventId={}, userId={}, path={}",
+                    event.getEventId(), event.getUserId(), event.getPath());
         } catch (RuntimeException ex) {
+            log.warn("HTTP风控事件投递失败 path={}", request.getRequestURI(), ex);
             // 风控事件投递失败不能阻塞主请求
         }
     }
@@ -176,25 +184,6 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         } catch (NumberFormatException ex) {
             return null;
         }
-    }
-
-    private String getClientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (hasText(forwardedFor)) {
-            return normalizeLocalIp(forwardedFor.split(",")[0].trim());
-        }
-        String realIp = request.getHeader("X-Real-IP");
-        if (hasText(realIp)) {
-            return normalizeLocalIp(realIp.trim());
-        }
-        return normalizeLocalIp(request.getRemoteAddr());
-    }
-
-    private String normalizeLocalIp(String ip) {
-        if ("0:0:0:0:0:0:0:1".equals(ip) || "::1".equals(ip)) {
-            return "127.0.0.1";
-        }
-        return ip;
     }
 
     private Map<String, String> buildHeaders(HttpServletRequest request) {
