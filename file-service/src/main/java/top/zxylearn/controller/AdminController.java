@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.FileService;
 
-@Tag(name = "文件管理")
+@Tag(name = "文件服务管理员接口")
 @RestController
 @RequestMapping("/api/file/admin")
 public class AdminController {
@@ -21,9 +21,9 @@ public class AdminController {
         this.fileService = fileService;
     }
 
-    @Operation(summary = "管理员删除图片")
+    @Operation(summary = "删除文件")
     @DeleteMapping("/delete")
-    public Result<?> deleteImage(@Parameter(description = "文件访问地址") @RequestParam("url") String url) {
+    public Result<?> delete(@Parameter(description = "文件访问地址") @RequestParam("url") String url) {
         try {
             fileService.adminDelete(url);
             return Result.success();

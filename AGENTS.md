@@ -88,12 +88,17 @@ X-Internal-Token: ${internal.token}
 spring:
   config:
     import:
-      - nacos:common-dev.yml?group=ElE&refreshEnabled=true
+      - nacos:common-dev.yaml?group=ElE&refreshEnabled=true
+  cloud:
+    nacos:
+      config:
+        group: ElE
+        file-extension: yaml
 ```
 
 Nacos 公共配置约定：
 
-- Data ID：`common-dev.yml`
+- Data ID：`common-dev.yaml`
 - Group：`ElE`
 - 格式：`YAML`
 
@@ -110,7 +115,7 @@ Nacos 公共配置约定：
 - 内部访问令牌：`internal.token`
 
 
-配置中心 `common-dev.yml` 格式参考，真实值必须只放在 Nacos 中，文档中一律使用占位符：
+配置中心 `common-dev.yaml` 格式参考，真实值必须只放在 Nacos 中，文档中一律使用占位符：
 
 ```yaml
 spring:
@@ -183,4 +188,4 @@ amap:
 - `AGENTS.md` 只记录配置结构和约定，不记录任何真实密码、Token、AccessKey、PrivateKey、Secret。
 - 不要把数据库密码、Redis 密码、RabbitMQ 密码、邮箱授权码、OSS 密钥、支付宝私钥、高德 Key、内部访问令牌写进说明文档或代码注释。
 - 本地 `application.yml` 只保留端口、应用名、Nacos 连接信息、网关路由等启动必需配置。
-- 如果新增服务依赖公共基础设施配置，优先复用 `common-dev.yml`，不要在服务本地重复配置。
+- 如果新增服务依赖公共基础设施配置，优先复用 `common-dev.yaml`，不要在服务本地重复配置。

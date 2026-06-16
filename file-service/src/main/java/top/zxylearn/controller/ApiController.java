@@ -43,7 +43,7 @@ public class ApiController {
     }
 
 
-    @Operation(summary = "获取图片直传授权")
+    @Operation(summary = "获取文件上传授权")
     @PostMapping("/upload-policy")
     public Result<DirectUploadPolicyVO> createUploadPolicy(@RequestHeader("X-User-Id") String userId,
                                                            @RequestBody DirectUploadPolicyRequest request) {
