@@ -17,8 +17,6 @@ public class Payment {
 
     private String subject;
 
-    private String remark;
-
     private String businessType;
 
     private Long businessId;
@@ -28,7 +26,7 @@ public class Payment {
     private String channel;
 
     /**
-     * 支付状态：0待支付，1支付成功，2支付失败，3已退款
+     * 支付状态：0待支付，1支付成功，2支付失败（包含支付超时过期），3已退款
      */
     private Integer status;
 

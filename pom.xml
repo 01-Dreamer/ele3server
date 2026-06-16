@@ -51,6 +51,7 @@
 		<spring-cloud.version>2025.1.0</spring-cloud.version>
 		<spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
 		<tianai-captcha.version>1.5.5</tianai-captcha.version>
+		<alipay-sdk.version>4.40.837.ALL</alipay-sdk.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -99,6 +100,11 @@
 				<groupId>cloud.tianai.captcha</groupId>
 				<artifactId>tianai-captcha-springboot-starter</artifactId>
 				<version>${tianai-captcha.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.alipay.sdk</groupId>
+				<artifactId>alipay-sdk-java</artifactId>
+				<version>${alipay-sdk.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>

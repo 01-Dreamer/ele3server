@@ -11,5 +11,5 @@ import java.io.Serializable;
 @AllArgsConstructor
 public class PaymentWalletCreateRequest implements Serializable {
 
-    private Long userId;
+    private String userId;
 }

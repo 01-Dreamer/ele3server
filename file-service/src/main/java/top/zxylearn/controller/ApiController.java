@@ -18,7 +18,7 @@ import top.zxylearn.service.FileService;
 import top.zxylearn.vo.DirectUploadPolicyVO;
 import top.zxylearn.vo.FileUploadVO;
 
-@Tag(name = "文件服务")
+@Tag(name = "用户接口")
 @RestController
 @RequestMapping("/api/file")
 public class ApiController {

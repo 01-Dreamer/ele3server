@@ -162,7 +162,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         try {
             HttpRiskEventDTO event = new HttpRiskEventDTO();
             event.setEventId(UUID.randomUUID().toString());
-            event.setUserId(parseUserId(userId));
+            event.setUserId(userId);
             event.setIp(IpUtils.getClientIp(request));
             event.setMethod(request.getMethod());
             event.setPath(request.getRequestURI());
@@ -178,13 +178,6 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         }
     }
 
-    private Long parseUserId(String userId) {
-        try {
-            return Long.valueOf(userId);
-        } catch (NumberFormatException ex) {
-            return null;
-        }
-    }
 
     private Map<String, String> buildHeaders(HttpServletRequest request) {
         Map<String, String> headers = new HashMap<>();

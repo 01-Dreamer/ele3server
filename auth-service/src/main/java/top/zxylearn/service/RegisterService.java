@@ -60,10 +60,11 @@ public class RegisterService {
         }
 
         Long userId = account.getUserId();
-        checkInternalCall(userClient.createUser(new UserCreateRequest(userId)), "用户资料创建失败");
-        checkInternalCall(paymentWalletClient.createWallet(new PaymentWalletCreateRequest(userId)), "用户钱包创建失败");
+        String userIdText = String.valueOf(userId);
+        checkInternalCall(userClient.createUser(new UserCreateRequest(userIdText)), "用户资料创建失败");
+        checkInternalCall(paymentWalletClient.createWallet(new PaymentWalletCreateRequest(userIdText)), "用户钱包创建失败");
 
-        return new RegisterVO(String.valueOf(userId), account.getEmail(), account.getRole(), account.getStatus());
+        return new RegisterVO(userIdText, account.getEmail(), account.getRole(), account.getStatus());
     }
 
     private void checkInternalCall(Result<?> result, String defaultMessage) {

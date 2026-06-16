@@ -11,7 +11,7 @@ import top.zxylearn.result.Result;
 import top.zxylearn.service.ImageCaptchaService;
 import top.zxylearn.vo.TextCaptchaVO;
 
-@Tag(name = "验证码公共接口")
+@Tag(name = "公共接口")
 @RestController
 @RequestMapping("/api/risk/public/captcha")
 public class PublicController {

@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.FileService;
 
-@Tag(name = "文件服务管理员接口")
+@Tag(name = "管理员接口")
 @RestController
 @RequestMapping("/api/file/admin")
 public class AdminController {

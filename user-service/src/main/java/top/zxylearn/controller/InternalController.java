@@ -10,7 +10,7 @@ import top.zxylearn.dto.user.UserCreateRequest;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.UserService;
 
-@Tag(name = "用户内部接口")
+@Tag(name = "内部接口")
 @RestController
 @RequestMapping("/internal/user")
 public class InternalController {

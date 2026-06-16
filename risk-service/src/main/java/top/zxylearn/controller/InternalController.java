@@ -16,7 +16,7 @@ import top.zxylearn.service.ImageCaptchaService;
 import java.util.Collections;
 import java.util.Locale;
 
-@Tag(name = "验证码内部接口")
+@Tag(name = "内部接口")
 @RestController
 @RequestMapping("/internal/risk/captcha")
 public class InternalController {

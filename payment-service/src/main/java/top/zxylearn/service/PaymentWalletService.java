@@ -22,11 +22,11 @@ public class PaymentWalletService {
 
     @Transactional(rollbackFor = Exception.class)
     public void createWallet(PaymentWalletCreateRequest request) {
-        if (request == null || request.getUserId() == null) {
+        if (request == null) {
             throw new IllegalArgumentException("用户ID不能为空");
         }
         PaymentWallet wallet = new PaymentWallet();
-        wallet.setUserId(request.getUserId());
+        wallet.setUserId(parseUserId(request.getUserId()));
         wallet.setBalance(BigDecimal.ZERO);
         try {
             paymentWalletMapper.insert(wallet);
@@ -45,7 +45,7 @@ public class PaymentWalletService {
         if (request == null) {
             throw new IllegalArgumentException("扣款参数不能为空");
         }
-        Long userId = request.getUserId();
+        Long userId = parseUserId(request.getUserId());
         BigDecimal amount = request.getAmount();
         checkAmount(amount);
         int updated = paymentWalletMapper.deductBalance(userId, amount);
@@ -84,6 +84,9 @@ public class PaymentWalletService {
         }
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("扣款金额必须大于0");
+        }
+        if (amount.stripTrailingZeros().scale() > 2) {
+            throw new IllegalArgumentException("扣款金额最多只能保留两位小数");
         }
     }
 }

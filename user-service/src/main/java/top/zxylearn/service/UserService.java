@@ -20,16 +20,27 @@ public class UserService {
 
     @Transactional(rollbackFor = Exception.class)
     public void createUser(UserCreateRequest request) {
-        if (request == null || request.getUserId() == null) {
+        if (request == null) {
             throw new IllegalArgumentException("用户ID不能为空");
         }
         User user = new User();
-        user.setId(request.getUserId());
+        user.setId(parseUserId(request.getUserId()));
         user.setNickname(DEFAULT_NICKNAME);
         try {
             userMapper.insert(user);
         } catch (DuplicateKeyException ex) {
             throw new IllegalArgumentException("用户资料已存在");
+        }
+    }
+
+    private Long parseUserId(String userId) {
+        if (userId == null || userId.isBlank()) {
+            throw new IllegalArgumentException("用户ID不能为空");
+        }
+        try {
+            return Long.valueOf(userId.trim());
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("用户ID格式不正确");
         }
     }
 }

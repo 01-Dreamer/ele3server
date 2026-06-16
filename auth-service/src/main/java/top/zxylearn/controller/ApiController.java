@@ -16,7 +16,7 @@ import top.zxylearn.service.AuthPasswordService;
 import java.util.Collections;
 import java.util.Map;
 
-@Tag(name = "认证用户接口")
+@Tag(name = "用户接口")
 @RestController
 @RequestMapping("/api/auth")
 public class ApiController {

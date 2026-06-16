@@ -14,7 +14,7 @@ import top.zxylearn.result.Result;
 import top.zxylearn.service.LocationService;
 import top.zxylearn.vo.CoordinateVO;
 
-@Tag(name = "位置服务")
+@Tag(name = "用户接口")
 @RestController
 @RequestMapping("/api/location")
 public class ApiController {

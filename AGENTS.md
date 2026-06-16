@@ -78,7 +78,30 @@ X-Internal-Token: ${internal.token}
 - `AdminController`：管理员接口，需要 `role = ADMIN`，对应 `/api/{service}/admin/**`
 - `InternalController`：内部服务接口，只用于服务间调用，对应 `/internal/{service}/**`
 
-不要再新增其它命名风格的 Controller，例如 `UserController`、`AuthController`、`CaptchaController` 等。具体业务含义通过方法名、接口路径、`@Tag` 和 `@Operation` 表达。
+不要再新增其它命名风格的 Controller，例如 `UserController`、`AuthController`、`CaptchaController` 等。具体业务含义通过方法名、接口路径和 `@Operation` 表达。
+
+Knife4j 的 `@Tag` 必须按 Controller 类型统一命名，不要写成具体服务名或业务名：
+
+- `PublicController`：`@Tag(name = "公共接口")`
+- `ApiController`：`@Tag(name = "用户接口")`
+- `AdminController`：`@Tag(name = "管理员接口")`
+- `InternalController`：`@Tag(name = "内部接口")`
+
+具体业务说明放在方法级 `@Operation(summary = "...")`，不要靠 `@Tag` 区分。
+
+## 用户 ID 类型规则
+
+所有 HTTP 接口、OpenFeign 请求 DTO、响应 VO 中的 `userId` 一律使用 `String` 类型接收和返回。
+
+原因：用户 ID 使用雪花 ID，前端 JavaScript `Number` 无法安全表示 64 位整数，使用数字会产生精度误差。
+
+服务内部如果数据库字段是 `BIGINT` / Java `Long`，在 service 层显式校验并转换：
+
+```java
+Long userId = Long.valueOf(userIdText);
+```
+
+不要在 Controller 或 DTO 中直接暴露 `Long userId`。
 
 ## Redis Key 设计规则
 
