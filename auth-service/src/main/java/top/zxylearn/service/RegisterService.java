@@ -1,12 +1,18 @@
 package top.zxylearn.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import top.zxylearn.client.PaymentWalletClient;
+import top.zxylearn.client.UserClient;
 import top.zxylearn.dto.RegisterRequest;
+import top.zxylearn.dto.payment.PaymentWalletCreateRequest;
+import top.zxylearn.dto.user.UserCreateRequest;
 import top.zxylearn.entity.AuthAccount;
 import top.zxylearn.mapper.AuthAccountMapper;
+import top.zxylearn.result.Result;
 import top.zxylearn.util.PasswordValidator;
 import top.zxylearn.vo.RegisterVO;
 
@@ -18,13 +24,21 @@ public class RegisterService {
 
     private final AuthAccountMapper authAccountMapper;
     private final EmailCaptchaService emailCaptchaService;
+    private final UserClient userClient;
+    private final PaymentWalletClient paymentWalletClient;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public RegisterService(AuthAccountMapper authAccountMapper, EmailCaptchaService emailCaptchaService) {
+    public RegisterService(AuthAccountMapper authAccountMapper,
+                           EmailCaptchaService emailCaptchaService,
+                           UserClient userClient,
+                           PaymentWalletClient paymentWalletClient) {
         this.authAccountMapper = authAccountMapper;
         this.emailCaptchaService = emailCaptchaService;
+        this.userClient = userClient;
+        this.paymentWalletClient = paymentWalletClient;
     }
 
+    @GlobalTransactional(name = "auth-register", rollbackFor = Exception.class)
     public RegisterVO register(RegisterRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("请求参数不能为空");
@@ -45,7 +59,20 @@ public class RegisterService {
             throw new IllegalArgumentException("邮箱已注册");
         }
 
-        return new RegisterVO(String.valueOf(account.getUserId()), account.getEmail(), account.getRole(), account.getStatus());
+        Long userId = account.getUserId();
+        checkInternalCall(userClient.createUser(new UserCreateRequest(userId)), "用户资料创建失败");
+        checkInternalCall(paymentWalletClient.createWallet(new PaymentWalletCreateRequest(userId)), "用户钱包创建失败");
+
+        return new RegisterVO(String.valueOf(userId), account.getEmail(), account.getRole(), account.getStatus());
+    }
+
+    private void checkInternalCall(Result<?> result, String defaultMessage) {
+        if (result == null) {
+            throw new RuntimeException(defaultMessage);
+        }
+        if (result.getCode() == null || result.getCode() != 200) {
+            throw new RuntimeException(result.getMessage() == null ? defaultMessage : result.getMessage());
+        }
     }
 
     private void checkEmailNotRegistered(String email) {

@@ -24,7 +24,7 @@ import top.zxylearn.vo.RegisterVO;
 import java.util.Collections;
 import java.util.Map;
 
-@Tag(name = "认证公开接口")
+@Tag(name = "认证公共接口")
 @RestController
 @RequestMapping("/api/auth/public")
 public class PublicController {

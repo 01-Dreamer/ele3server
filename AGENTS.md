@@ -112,6 +112,8 @@ Nacos 公共配置约定：
 - 阿里云 OSS：`aliyun.oss`
 - 支付宝：`payment.alipay`
 - 高德地图：`amap`
+- Seata：`seata`
+- OpenAI / 大模型：`openai`
 - 内部访问令牌：`internal.token`
 
 
@@ -131,6 +133,12 @@ spring:
       password: <redis-password>
       database: <redis-database>
       timeout: 10s
+  elasticsearch:
+    uris: http://<elasticsearch-host>:<elasticsearch-port>
+    username: <elasticsearch-username>
+    password: <elasticsearch-password>
+    connection-timeout: 10000
+    read-timeout: 10000
   rabbitmq:
     host: <rabbitmq-host>
     port: <rabbitmq-port>
@@ -139,12 +147,6 @@ spring:
     listener:
       simple:
         default-requeue-rejected: false
-  elasticsearch:
-    uris: http://<elasticsearch-host>:<elasticsearch-port>
-    username: <elasticsearch-username>
-    password: <elasticsearch-password>
-    connection-timeout: 10000
-    read-timeout: 10000
   mail:
     host: <mail-host>
     port: <mail-port>
@@ -181,11 +183,26 @@ aliyun:
 
 amap:
   key: <amap-key>
+
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: <seata-tx-service-group>
+  service:
+    vgroup-mapping:
+      <seata-tx-service-group>: <seata-cluster-name>
+    grouplist:
+      <seata-cluster-name>: <seata-server-host>:<seata-server-port>
+
+openai:
+  api-key: <openai-api-key>
+  base-url: <openai-base-url>
+  model: <openai-model>
 ```
 
 安全规则：
 
 - `AGENTS.md` 只记录配置结构和约定，不记录任何真实密码、Token、AccessKey、PrivateKey、Secret。
-- 不要把数据库密码、Redis 密码、RabbitMQ 密码、邮箱授权码、OSS 密钥、支付宝私钥、高德 Key、内部访问令牌写进说明文档或代码注释。
+- 不要把数据库密码、Redis 密码、RabbitMQ 密码、邮箱授权码、OSS 密钥、支付宝私钥、高德 Key、Seata 地址、OpenAI Key、内部访问令牌写进说明文档或代码注释。
 - 本地 `application.yml` 只保留端口、应用名、Nacos 连接信息、网关路由等启动必需配置。
 - 如果新增服务依赖公共基础设施配置，优先复用 `common-dev.yaml`，不要在服务本地重复配置。
