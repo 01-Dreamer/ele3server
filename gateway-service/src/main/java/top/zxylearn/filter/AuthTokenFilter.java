@@ -42,8 +42,8 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String LOGIN_TOKEN_KEY_PREFIX = "auth:login:";
     private static final String LOGIN_USER_KEY_PREFIX = "auth:user:";
-    private static final int NORMAL_STATUS = 1;
-    private static final int BANNED_STATUS = 2;
+    private static final int NORMAL_STATUS = 0;
+    private static final int BANNED_STATUS = 1;
     private static final String ADMIN_ROLE = "ADMIN";
 
     private final StringRedisTemplate stringRedisTemplate;

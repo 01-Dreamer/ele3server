@@ -8,20 +8,22 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("auth_account")
-public class AuthAccount {
+@TableName("risk_text_record")
+public class RiskTextRecord {
 
-    @TableId(value = "user_id", type = IdType.ASSIGN_ID)
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
+    private Long id;
+
+    private String sourceType;
+
+    private Long sourceId;
+
     private Long userId;
 
-    private String email;
-
-    private String passwordHash;
-
-    private String role;
+    private String content;
 
     /**
-     * 状态：0正常，1封号
+     * 处理状态：0待处理，1已处理
      */
     private Integer status;
 

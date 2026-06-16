@@ -5,25 +5,17 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("auth_account")
-public class AuthAccount {
+@TableName("payment_wallet")
+public class PaymentWallet {
 
-    @TableId(value = "user_id", type = IdType.ASSIGN_ID)
+    @TableId(value = "user_id", type = IdType.INPUT)
     private Long userId;
 
-    private String email;
-
-    private String passwordHash;
-
-    private String role;
-
-    /**
-     * 状态：0正常，1封号
-     */
-    private Integer status;
+    private BigDecimal balance;
 
     private LocalDateTime createTime;
 

@@ -14,7 +14,7 @@ import top.zxylearn.vo.RegisterVO;
 public class RegisterService {
 
     private static final String DEFAULT_ROLE = "USER";
-    private static final int NORMAL_STATUS = 1;
+    private static final int NORMAL_STATUS = 0;
 
     private final AuthAccountMapper authAccountMapper;
     private final EmailCaptchaService emailCaptchaService;

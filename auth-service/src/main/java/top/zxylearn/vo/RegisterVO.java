@@ -20,6 +20,6 @@ public class RegisterVO {
     @Schema(description = "角色")
     private String role;
 
-    @Schema(description = "状态：1正常，2封号")
+    @Schema(description = "状态：0正常，1封号")
     private Integer status;
 }

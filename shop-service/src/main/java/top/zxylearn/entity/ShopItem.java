@@ -5,23 +5,28 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("auth_account")
-public class AuthAccount {
+@TableName("shop_item")
+public class ShopItem {
 
-    @TableId(value = "user_id", type = IdType.ASSIGN_ID)
-    private Long userId;
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
+    private Long id;
 
-    private String email;
+    private Long shopId;
 
-    private String passwordHash;
+    private String name;
 
-    private String role;
+    private String image;
+
+    private String description;
+
+    private BigDecimal price;
 
     /**
-     * 状态：0正常，1封号
+     * 商品状态：0正常，1下架
      */
     private Integer status;
 

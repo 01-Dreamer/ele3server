@@ -8,22 +8,21 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("auth_account")
-public class AuthAccount {
+@TableName("message_session")
+public class MessageSession {
 
-    @TableId(value = "user_id", type = IdType.ASSIGN_ID)
-    private Long userId;
+    @TableId(value = "id", type = IdType.ASSIGN_ID)
+    private Long id;
 
-    private String email;
+    private Long smallerUserId;
 
-    private String passwordHash;
+    private Long largerUserId;
 
-    private String role;
+    private Long lastMessageId;
 
-    /**
-     * 状态：0正常，1封号
-     */
-    private Integer status;
+    private String lastMessageContent;
+
+    private LocalDateTime lastMessageTime;
 
     private LocalDateTime createTime;
 

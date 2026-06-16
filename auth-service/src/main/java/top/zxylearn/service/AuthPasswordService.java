@@ -12,7 +12,7 @@ import top.zxylearn.util.PasswordValidator;
 @Service
 public class AuthPasswordService {
 
-    private static final int BANNED_STATUS = 2;
+    private static final int BANNED_STATUS = 1;
 
     private final AuthAccountMapper authAccountMapper;
     private final EmailCaptchaService emailCaptchaService;

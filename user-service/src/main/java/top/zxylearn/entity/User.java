@@ -8,22 +8,15 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("auth_account")
-public class AuthAccount {
+@TableName("user")
+public class User {
 
-    @TableId(value = "user_id", type = IdType.ASSIGN_ID)
-    private Long userId;
+    @TableId(value = "id", type = IdType.INPUT)
+    private Long id;
 
-    private String email;
+    private String nickname;
 
-    private String passwordHash;
-
-    private String role;
-
-    /**
-     * 状态：0正常，1封号
-     */
-    private Integer status;
+    private String avatar;
 
     private LocalDateTime createTime;
 

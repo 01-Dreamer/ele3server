@@ -40,6 +40,10 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-annotation</artifactId>
+        </dependency>
+        <dependency>
             <groupId>top.zxylearn</groupId>
             <artifactId>common-service</artifactId>
         </dependency>
