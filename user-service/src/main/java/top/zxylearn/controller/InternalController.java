@@ -8,24 +8,24 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.zxylearn.dto.user.UserCreateRequest;
 import top.zxylearn.result.Result;
-import top.zxylearn.service.UserInternalService;
+import top.zxylearn.service.UserService;
 
 @Tag(name = "用户内部接口")
 @RestController
 @RequestMapping("/internal/user")
 public class InternalController {
 
-    private final UserInternalService userInternalService;
+    private final UserService userService;
 
-    public InternalController(UserInternalService userInternalService) {
-        this.userInternalService = userInternalService;
+    public InternalController(UserService userService) {
+        this.userService = userService;
     }
 
     @Operation(summary = "创建用户资料")
     @PostMapping("/create-user")
     public Result<?> createUser(@RequestBody UserCreateRequest request) {
         try {
-            userInternalService.createUser(request);
+            userService.createUser(request);
             return Result.success();
         } catch (IllegalArgumentException ex) {
             return Result.fail(400, ex.getMessage());

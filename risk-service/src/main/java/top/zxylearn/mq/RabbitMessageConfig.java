@@ -11,7 +11,7 @@ import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import top.zxylearn.constant.RiskMqConstants;
+import top.zxylearn.constant.MqConstants;
 
 @Configuration
 public class RabbitMessageConfig {
@@ -23,19 +23,19 @@ public class RabbitMessageConfig {
 
     @Bean
     public Declarables riskRabbitDeclarables() {
-        TopicExchange riskExchange = new TopicExchange(RiskMqConstants.RISK_EXCHANGE, true, false);
-        DirectExchange deadLetterExchange = new DirectExchange(RiskMqConstants.DLX_EXCHANGE, true, false);
-        Queue riskHttpQueue = QueueBuilder.durable(RiskMqConstants.HTTP_QUEUE)
-                .deadLetterExchange(RiskMqConstants.DLX_EXCHANGE)
-                .deadLetterRoutingKey(RiskMqConstants.DLX_ROUTING_KEY)
+        TopicExchange riskExchange = new TopicExchange(MqConstants.RISK_EXCHANGE, true, false);
+        DirectExchange deadLetterExchange = new DirectExchange(MqConstants.DLX_EXCHANGE, true, false);
+        Queue riskHttpQueue = QueueBuilder.durable(MqConstants.HTTP_QUEUE)
+                .deadLetterExchange(MqConstants.DLX_EXCHANGE)
+                .deadLetterRoutingKey(MqConstants.DLX_ROUTING_KEY)
                 .build();
-        Queue deadLetterQueue = QueueBuilder.durable(RiskMqConstants.DLX_QUEUE).build();
+        Queue deadLetterQueue = QueueBuilder.durable(MqConstants.DLX_QUEUE).build();
         Binding riskHttpBinding = BindingBuilder.bind(riskHttpQueue)
                 .to(riskExchange)
-                .with(RiskMqConstants.HTTP_ROUTING_KEY);
+                .with(MqConstants.HTTP_ROUTING_KEY);
         Binding deadLetterBinding = BindingBuilder.bind(deadLetterQueue)
                 .to(deadLetterExchange)
-                .with(RiskMqConstants.DLX_ROUTING_KEY);
+                .with(MqConstants.DLX_ROUTING_KEY);
         return new Declarables(riskExchange, deadLetterExchange, riskHttpQueue, deadLetterQueue,
                 riskHttpBinding, deadLetterBinding);
     }

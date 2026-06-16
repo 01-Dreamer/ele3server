@@ -80,6 +80,53 @@ X-Internal-Token: ${internal.token}
 
 不要再新增其它命名风格的 Controller，例如 `UserController`、`AuthController`、`CaptchaController` 等。具体业务含义通过方法名、接口路径、`@Tag` 和 `@Operation` 表达。
 
+## Redis Key 设计规则
+
+Redis Key 统一使用小写冒号分隔格式：
+
+```text
+{service}:{domain}:{scene}:{identifier}
+```
+
+规则：
+
+- 第一段必须是服务名前缀，例如 `auth`、`risk`、`user`、`shop`、`order`、`payment`。
+- 中间段表达业务域和场景，例如 `login`、`email`、`captcha`、`tokens`。
+- 最后一段放唯一标识，例如 `token`、`userId`、`email`、`captchaId`。
+- 固定字面量使用小写英文和短横线，动态值不要再拼中文。
+- 不要使用裸 key，例如 `token:{token}`、`captcha:{id}`；必须带服务前缀。
+- 不同微服务不能共用同一前缀，避免 key 冲突。
+- 所有临时态 key 必须设置 TTL，例如验证码、登录 token、临时风控状态。
+- Redis value 优先存 JSON 字符串或简单标量；集合类关系使用 Redis Set/List/Hash 等原生结构。
+- 涉及用户 ID 的 key，前端可能使用字符串，但 Redis key 中直接使用字符串形式即可。
+- 写代码时优先用常量前缀和 `buildXxxKey(...)` 方法生成 key，不要在业务逻辑里到处手写拼接。
+
+当前已有 key 约定：
+
+```text
+# auth-service 登录 token -> LoginTokenVO，TTL = auth.login.ttl
+# 示例 value 包含 userId、loginIp、loginTime
+auth:login:{token}
+
+# auth-service 用户登录信息 -> LoginUserVO，TTL = auth.login.ttl
+auth:user:{userId}
+
+# auth-service 用户当前 token 集合 -> Set(token)，TTL = auth.login.ttl
+auth:login:tokens:{userId}
+
+# auth-service 邮箱验证码 -> code，TTL = auth.email-captcha.ttl
+# scene 示例：register、forgot-password、change-password
+auth:email:captcha:{scene}:{email}
+
+# risk-service 图形验证码 -> code，TTL = captcha.text.ttl
+risk:captcha:text:{captchaId}
+
+# tianai-captcha 滑块验证码相关 key 使用 captcha.prefix 控制，当前前缀为 risk:captcha
+risk:captcha:...
+```
+
+新增 Redis Key 时先检查是否能复用上面的结构；如果需要新增一类长期 key，要在本节补充用途、value 类型和 TTL 策略。
+
 ## 配置中心规则
 
 所有微服务必须通过 Nacos 引入公共配置：

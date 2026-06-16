@@ -16,7 +16,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import top.zxylearn.constant.RiskMqConstants;
+import top.zxylearn.constant.MqConstants;
 import top.zxylearn.dto.risk.HttpRiskEventDTO;
 import top.zxylearn.result.Result;
 import top.zxylearn.util.IpUtils;
@@ -169,7 +169,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
             event.setHeaders(buildHeaders(request));
             event.setQueryParams(buildQueryParams(request));
             event.setTimestamp(System.currentTimeMillis());
-            rabbitTemplate.convertAndSend(RiskMqConstants.RISK_EXCHANGE, RiskMqConstants.HTTP_ROUTING_KEY, event);
+            rabbitTemplate.convertAndSend(MqConstants.RISK_EXCHANGE, MqConstants.HTTP_ROUTING_KEY, event);
             log.info("已投递HTTP风控事件 eventId={}, userId={}, path={}",
                     event.getEventId(), event.getUserId(), event.getPath());
         } catch (RuntimeException ex) {

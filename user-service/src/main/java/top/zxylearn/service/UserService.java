@@ -8,13 +8,13 @@ import top.zxylearn.entity.User;
 import top.zxylearn.mapper.UserMapper;
 
 @Service
-public class UserInternalService {
+public class UserService {
 
     private static final String DEFAULT_NICKNAME = "饿了么用户";
 
     private final UserMapper userMapper;
 
-    public UserInternalService(UserMapper userMapper) {
+    public UserService(UserMapper userMapper) {
         this.userMapper = userMapper;
     }
 

@@ -7,7 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
-import top.zxylearn.constant.RiskMqConstants;
+import top.zxylearn.constant.MqConstants;
 import top.zxylearn.dto.risk.HttpRiskEventDTO;
 
 @Component
@@ -17,7 +17,7 @@ public class HttpRiskEventListener {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @RabbitListener(queues = RiskMqConstants.HTTP_QUEUE)
+    @RabbitListener(queues = MqConstants.HTTP_QUEUE)
     public void listen(Message message) {
         String body = new String(message.getBody());
         log.info("收到HTTP风控原始消息: {}", body);
