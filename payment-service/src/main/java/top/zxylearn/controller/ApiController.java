@@ -42,7 +42,7 @@ public class ApiController {
         }
     }
 
-    @Operation(summary = "创建钱包充值支付订单")
+    @Operation(summary = "创建钱包充值支付宝支付订单")
     @PostMapping("/alipay-recharge")
     public Result<PaymentCreateVO> createRechargeOrder(@RequestHeader("X-User-Id") String userId,
                                                        @RequestBody WalletRechargeRequest request) {

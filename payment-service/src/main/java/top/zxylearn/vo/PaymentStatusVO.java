@@ -34,6 +34,6 @@ public class PaymentStatusVO {
     @Schema(description = "支付渠道")
     private String channel;
 
-    @Schema(description = "支付状态：0待支付，1支付成功，2支付失败，3已退款")
+    @Schema(description = "支付状态：0等待支付，1支付成功，2支付过期，3支付取消，4支付退款")
     private Integer status;
 }

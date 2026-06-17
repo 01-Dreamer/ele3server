@@ -8,25 +8,22 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("message_session")
-public class MessageSession {
+@TableName("message_info")
+public class MessageInfo {
 
     @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
 
-    private Long smallerUserId;
+    private Long userId;
 
-    private Long largerUserId;
+    private String title;
 
-    private Long lastMessageId;
+    private String content;
 
-    private String lastMessageContent;
-
-    private LocalDateTime lastMessageTime;
-
-    private Long smallerUserUnreadCount;
-
-    private Long largerUserUnreadCount;
+    /**
+     * 是否已读：0未读，1已读
+     */
+    private Integer isRead;
 
     private LocalDateTime createTime;
 

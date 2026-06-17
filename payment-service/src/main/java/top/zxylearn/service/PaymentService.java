@@ -40,6 +40,7 @@ public class PaymentService {
     private static final int STATUS_PENDING = 0;
     private static final int STATUS_SUCCESS = 1;
     private static final int STATUS_EXPIRED = 2;
+    private static final int STATUS_CANCELLED = 3;
     private static final String BUSINESS_TYPE_ORDER = "ORDER";
     private static final String BUSINESS_TYPE_RECHARGE = "RECHARGE";
     private static final String ALIPAY_TRADE_SUCCESS = "TRADE_SUCCESS";
@@ -155,7 +156,7 @@ public class PaymentService {
         }
         closeAlipayTrade(payment);
         int updated = paymentMapper.update(null, new LambdaUpdateWrapper<Payment>()
-                .set(Payment::getStatus, STATUS_EXPIRED)
+                .set(Payment::getStatus, STATUS_CANCELLED)
                 .eq(Payment::getId, payment.getId())
                 .eq(Payment::getStatus, STATUS_PENDING));
         if (updated == 0) {
