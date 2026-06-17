@@ -18,4 +18,7 @@ public class PaymentCreateVO implements Serializable {
 
     @Schema(description = "支付二维码内容，前端可渲染为文本二维码")
     private String payUrl;
+
+    @Schema(description = "支付过期时间", example = "2026-06-17 13:30:00")
+    private String expireTime;
 }

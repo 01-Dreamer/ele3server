@@ -3,10 +3,14 @@ package top.zxylearn.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import top.zxylearn.dto.WalletRechargeRequest;
+import top.zxylearn.dto.payment.PaymentCreateVO;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.PaymentService;
 import top.zxylearn.service.PaymentWalletService;
@@ -35,6 +39,19 @@ public class ApiController {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
             return Result.fail(500, "余额获取失败");
+        }
+    }
+
+    @Operation(summary = "创建钱包充值支付订单")
+    @PostMapping("/alipay-recharge")
+    public Result<PaymentCreateVO> createRechargeOrder(@RequestHeader("X-User-Id") String userId,
+                                                       @RequestBody WalletRechargeRequest request) {
+        try {
+            return Result.success(paymentService.createRechargeAlipayOrder(userId, request));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "充值支付订单创建失败" : ex.getMessage());
         }
     }
 

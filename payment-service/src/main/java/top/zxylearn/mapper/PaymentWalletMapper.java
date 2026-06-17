@@ -18,4 +18,11 @@ public interface PaymentWalletMapper extends BaseMapper<PaymentWallet> {
               AND balance >= #{amount}
             """)
     int deductBalance(@Param("userId") Long userId, @Param("amount") BigDecimal amount);
+
+    @Update("""
+            UPDATE payment_wallet
+            SET balance = balance + #{amount}
+            WHERE user_id = #{userId}
+            """)
+    int addBalance(@Param("userId") Long userId, @Param("amount") BigDecimal amount);
 }

@@ -26,11 +26,15 @@ public class Payment {
     private String channel;
 
     /**
-     * 支付状态：0待支付，1支付成功，2支付失败（包含支付超时过期），3已退款
+     * 支付状态：0等待支付，1支付成功，2支付过期，3支付取消，4支付退款
      */
     private Integer status;
 
     private String tradeNo;
+
+    private String payUrl;
+
+    private LocalDateTime expireTime;
 
     private LocalDateTime createTime;
 

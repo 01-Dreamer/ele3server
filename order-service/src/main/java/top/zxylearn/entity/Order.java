@@ -38,9 +38,11 @@ public class Order {
     private BigDecimal amount;
 
     /**
-     * 订单状态：0待支付，1待接单，2待配送，3待评价，4已完成，5已取消
+     * 订单状态：0待支付，1待接单，2待配送，3待评价，4已完成，5已过期，6已取消
      */
     private Integer status;
+
+    private LocalDateTime expireTime;
 
     private LocalDateTime createTime;
 

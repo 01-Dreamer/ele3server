@@ -47,13 +47,25 @@ public class PaymentWalletService {
         }
         Long userId = parseUserId(request.getUserId());
         BigDecimal amount = request.getAmount();
-        checkAmount(amount);
+        checkAmount(amount, "扣款金额");
         int updated = paymentWalletMapper.deductBalance(userId, amount);
         if (updated > 0) {
             return;
         }
         getWallet(userId);
         throw new IllegalArgumentException("余额不足");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void addBalance(Long userId, BigDecimal amount) {
+        if (userId == null) {
+            throw new IllegalArgumentException("用户ID不能为空");
+        }
+        checkAmount(amount, "充值金额");
+        int updated = paymentWalletMapper.addBalance(userId, amount);
+        if (updated == 0) {
+            throw new IllegalArgumentException("用户钱包不存在");
+        }
     }
 
     private PaymentWallet getWallet(Long userId) {
@@ -78,15 +90,15 @@ public class PaymentWalletService {
         }
     }
 
-    private void checkAmount(BigDecimal amount) {
+    private void checkAmount(BigDecimal amount, String fieldName) {
         if (amount == null) {
-            throw new IllegalArgumentException("扣款金额不能为空");
+            throw new IllegalArgumentException(fieldName + "不能为空");
         }
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("扣款金额必须大于0");
+            throw new IllegalArgumentException(fieldName + "必须大于0");
         }
         if (amount.stripTrailingZeros().scale() > 2) {
-            throw new IllegalArgumentException("扣款金额最多只能保留两位小数");
+            throw new IllegalArgumentException(fieldName + "最多只能保留两位小数");
         }
     }
 }

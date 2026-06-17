@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import top.zxylearn.dto.payment.PaymentCloseRequest;
 import top.zxylearn.dto.payment.PaymentCreateRequest;
 import top.zxylearn.dto.payment.PaymentCreateVO;
 import top.zxylearn.dto.payment.PaymentWalletCreateRequest;
@@ -62,6 +63,19 @@ public class InternalController {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
             return Result.fail(500, ex.getMessage() == null ? "支付订单创建失败" : ex.getMessage());
+        }
+    }
+
+    @Operation(summary = "关闭支付宝支付订单")
+    @PostMapping("/close-alipay-order")
+    public Result<?> closeAlipayOrder(@RequestBody PaymentCloseRequest request) {
+        try {
+            paymentService.closeAlipayOrder(request);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "支付订单关闭失败" : ex.getMessage());
         }
     }
 

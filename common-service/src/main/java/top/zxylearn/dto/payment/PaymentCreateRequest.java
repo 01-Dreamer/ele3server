@@ -17,12 +17,12 @@ public class PaymentCreateRequest implements Serializable {
     @Schema(description = "支付标题", example = "订单支付")
     private String subject;
 
-    @Schema(description = "业务类型，例如 ORDER、RECHARGE", example = "ORDER")
-    private String businessType;
-
     @Schema(description = "业务ID，雪花ID使用字符串传输", example = "2066777636767580162")
     private String businessId;
 
     @Schema(description = "支付金额，最多两位小数", example = "12.50")
     private BigDecimal amount;
+
+    @Schema(description = "支付过期时间，单位分钟，必填", example = "15")
+    private Integer expireMinutes;
 }
