@@ -3,7 +3,9 @@ package top.zxylearn.service;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
 import com.aliyun.oss.model.ObjectMetadata;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.multipart.MultipartFile;
 import top.zxylearn.config.AliyunOssProperties;
 import top.zxylearn.dto.DirectUploadPolicyRequest;
@@ -30,13 +32,16 @@ public class FileService {
 
     private static final String FILE_ROOT = "ele/";
     private static final Set<String> ALLOWED_IMAGE_EXTENSIONS = Set.of(".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp");
-    private static final long DIRECT_UPLOAD_MAX_SIZE = 5 * 1024 * 1024;
-    private static final Duration DIRECT_UPLOAD_EXPIRE = Duration.ofMinutes(5);
-
     private final AliyunOssProperties aliyunOssProperties;
+    private final Duration directUploadExpire;
+    private final DataSize directUploadMaxSize;
 
-    public FileService(AliyunOssProperties aliyunOssProperties) {
+    public FileService(AliyunOssProperties aliyunOssProperties,
+                       @Value("${file.direct-upload.expire}") Duration directUploadExpire,
+                       @Value("${file.direct-upload.max-size}") DataSize directUploadMaxSize) {
         this.aliyunOssProperties = aliyunOssProperties;
+        this.directUploadExpire = directUploadExpire;
+        this.directUploadMaxSize = directUploadMaxSize;
     }
 
     public FileUploadVO upload(String userId, MultipartFile file) {
@@ -120,7 +125,7 @@ public class FileService {
         validateImage(contentType, fileExtension);
 
         String objectName = buildUserRoot(userId) + UUID.randomUUID().toString().replace("-", "") + fileExtension;
-        Instant expiration = Instant.now().plus(DIRECT_UPLOAD_EXPIRE);
+        Instant expiration = Instant.now().plus(directUploadExpire);
         String policyJson = buildDirectUploadPolicyJson(objectName, contentType, expiration);
         String policy = Base64.getEncoder().encodeToString(policyJson.getBytes(StandardCharsets.UTF_8));
         String signature = signPolicy(policy);
@@ -146,7 +151,7 @@ public class FileService {
                 + "\"conditions\":["
                 + "[\"eq\",\"$key\",\"" + objectName + "\"],"
                 + "[\"eq\",\"$Content-Type\",\"" + contentType + "\"],"
-                + "[\"content-length-range\",1," + DIRECT_UPLOAD_MAX_SIZE + "]"
+                + "[\"content-length-range\",1," + directUploadMaxSize.toBytes() + "]"
                 + "]}"
                 ;
     }

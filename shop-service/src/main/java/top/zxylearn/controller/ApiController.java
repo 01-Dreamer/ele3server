@@ -12,13 +12,18 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.zxylearn.dto.ShopCreateRequest;
 import top.zxylearn.dto.ShopItemCreateRequest;
+import top.zxylearn.dto.ShopReviewReplyRequest;
 import top.zxylearn.dto.ShopUpdateRequest;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.ShopService;
+import top.zxylearn.vo.CursorPageVO;
 import top.zxylearn.vo.ShopItemVO;
+import top.zxylearn.vo.ShopReviewReplyVO;
+import top.zxylearn.vo.ShopReviewVO;
 import top.zxylearn.vo.ShopVO;
 
 import java.util.List;
@@ -135,6 +140,52 @@ public class ApiController {
         } catch (RuntimeException ex) {
             log.error("商品列表获取失败", ex);
             return Result.fail(500, "商品列表获取失败");
+        }
+    }
+
+
+    @Operation(summary = "查询店铺评价")
+    @GetMapping("/list-review/{shopId}")
+    public Result<CursorPageVO<ShopReviewVO>> listReviews(@PathVariable String shopId,
+                                                          @RequestParam(value = "cursor", required = false) String cursor,
+                                                          @RequestParam(value = "size", required = false) Integer size) {
+        try {
+            return Result.success(shopService.listReviews(shopId, cursor, size));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("评价列表获取失败", ex);
+            return Result.fail(500, "评价列表获取失败");
+        }
+    }
+
+    @Operation(summary = "查询评价回复")
+    @GetMapping("/list-review-reply/{reviewId}")
+    public Result<CursorPageVO<ShopReviewReplyVO>> listReviewReplies(@PathVariable String reviewId,
+                                                                     @RequestParam(value = "cursor", required = false) String cursor,
+                                                                     @RequestParam(value = "size", required = false) Integer size) {
+        try {
+            return Result.success(shopService.listReviewReplies(reviewId, cursor, size));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("评价回复列表获取失败", ex);
+            return Result.fail(500, "评价回复列表获取失败");
+        }
+    }
+
+    @Operation(summary = "回复店铺评价")
+    @PostMapping("/reply-review")
+    public Result<?> replyReview(@RequestHeader("X-User-Id") String userId,
+                                 @RequestBody ShopReviewReplyRequest request) {
+        try {
+            shopService.replyReview(userId, request);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("评价回复失败", ex);
+            return Result.fail(500, "评价回复失败");
         }
     }
 }

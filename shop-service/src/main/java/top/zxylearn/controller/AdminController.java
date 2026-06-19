@@ -103,4 +103,32 @@ public class AdminController {
             return Result.fail(500, "商品删除失败");
         }
     }
+
+    @Operation(summary = "删除任意店铺评价")
+    @DeleteMapping("/delete-review/{reviewId}")
+    public Result<?> deleteReview(@PathVariable String reviewId) {
+        try {
+            shopService.deleteReviewByAdmin(reviewId);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("管理员删除评价失败", ex);
+            return Result.fail(500, "评价删除失败");
+        }
+    }
+
+    @Operation(summary = "删除任意评价回复")
+    @DeleteMapping("/delete-review-reply/{replyId}")
+    public Result<?> deleteReviewReply(@PathVariable String replyId) {
+        try {
+            shopService.deleteReviewReplyByAdmin(replyId);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("管理员删除评价回复失败", ex);
+            return Result.fail(500, "评价回复删除失败");
+        }
+    }
 }

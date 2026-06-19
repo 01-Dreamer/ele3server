@@ -12,10 +12,10 @@ public class ShopCreateRequest {
     @Schema(description = "店铺名称", example = "川味小馆")
     private String name;
 
-    @Schema(description = "店铺头像URL")
+    @Schema(description = "店铺头像URL，可为空")
     private String avatar;
 
-    @Schema(description = "店铺描述")
+    @Schema(description = "店铺描述，必填")
     private String description;
 
     @Schema(description = "店铺地址")

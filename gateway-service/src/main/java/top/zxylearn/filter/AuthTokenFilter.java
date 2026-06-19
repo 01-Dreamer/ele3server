@@ -68,13 +68,11 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         String token = extractToken(request.getHeader(AUTHORIZATION_HEADER));
 
         if (isPublicPath(path)) {
-            publishRiskEvent(request, null);
             filterChain.doFilter(new UserIdHeaderRequestWrapper(request, null), response);
             return;
         }
 
         if (!hasText(token)) {
-            publishRiskEvent(request, null);
             if (isAdminPath(path)) {
                 writeError(response, 401, "请先登录");
                 return;
@@ -85,24 +83,20 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
         LoginToken loginToken = getLoginToken(token);
         if (loginToken == null || !hasText(loginToken.userId())) {
-            publishRiskEvent(request, null);
             writeError(response, 401, "登录状态已失效，请重新登录");
             return;
         }
 
         LoginUser loginUser = getLoginUser(loginToken.userId());
         if (loginUser == null) {
-            publishRiskEvent(request, loginToken.userId());
             writeError(response, 401, "登录状态已失效，请重新登录");
             return;
         }
         if (loginUser.status() == BANNED_STATUS) {
-            publishRiskEvent(request, loginToken.userId());
             writeError(response, 403, "账号已被封禁");
             return;
         }
         if (loginUser.status() != NORMAL_STATUS) {
-            publishRiskEvent(request, loginToken.userId());
             writeError(response, 403, "账号状态异常");
             return;
         }

@@ -12,10 +12,10 @@ public class ShopItemCreateRequest {
     @Schema(description = "商品名称", example = "招牌牛肉饭")
     private String name;
 
-    @Schema(description = "商品图片URL")
+    @Schema(description = "商品图片URL，可为空")
     private String image;
 
-    @Schema(description = "商品描述")
+    @Schema(description = "商品描述，必填")
     private String description;
 
     @Schema(description = "商品价格", example = "18.50")

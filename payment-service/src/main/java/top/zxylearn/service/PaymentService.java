@@ -14,6 +14,7 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import top.zxylearn.config.AlipayProperties;
@@ -46,7 +47,6 @@ public class PaymentService {
     private static final String ALIPAY_TRADE_SUCCESS = "TRADE_SUCCESS";
     private static final String ALIPAY_TRADE_FINISHED = "TRADE_FINISHED";
     private static final String ALIPAY_TRADE_CLOSED = "TRADE_CLOSED";
-    private static final int RECHARGE_EXPIRE_MINUTES = 30;
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final PaymentMapper paymentMapper;
@@ -54,15 +54,18 @@ public class PaymentService {
     private final RabbitTemplate rabbitTemplate;
     private final AlipayProperties alipayProperties;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Integer rechargeExpireMinutes;
 
     public PaymentService(PaymentMapper paymentMapper,
                           PaymentWalletService paymentWalletService,
                           RabbitTemplate rabbitTemplate,
-                          AlipayProperties alipayProperties) {
+                          AlipayProperties alipayProperties,
+                          @Value("${payment.recharge.expire-minutes}") Integer rechargeExpireMinutes) {
         this.paymentMapper = paymentMapper;
         this.paymentWalletService = paymentWalletService;
         this.rabbitTemplate = rabbitTemplate;
         this.alipayProperties = alipayProperties;
+        this.rechargeExpireMinutes = rechargeExpireMinutes;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -91,12 +94,13 @@ public class PaymentService {
         }
         Long rechargeUserId = parseLongId(userId, "用户ID");
         checkAmount(request.getAmount());
+        checkExpireMinutes(rechargeExpireMinutes);
         Payment payment = buildPendingAlipayPayment(
                 "钱包充值",
                 BUSINESS_TYPE_RECHARGE,
                 rechargeUserId,
                 request.getAmount());
-        return createAlipayOrder(payment, RECHARGE_EXPIRE_MINUTES);
+        return createAlipayOrder(payment, rechargeExpireMinutes);
     }
 
     @Transactional(rollbackFor = Exception.class)

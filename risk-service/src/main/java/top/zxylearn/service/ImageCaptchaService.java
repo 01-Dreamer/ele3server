@@ -44,7 +44,7 @@ public class ImageCaptchaService {
 
     public ImageCaptchaService(ImageCaptchaApplication imageCaptchaApplication,
                                StringRedisTemplate stringRedisTemplate,
-                               @Value("${captcha.text.ttl:120s}") Duration textCaptchaTtl) {
+                               @Value("${captcha.text.ttl}") Duration textCaptchaTtl) {
         this.imageCaptchaApplication = imageCaptchaApplication;
         this.stringRedisTemplate = stringRedisTemplate;
         this.textCaptchaTtl = textCaptchaTtl;

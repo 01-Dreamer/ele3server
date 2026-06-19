@@ -18,8 +18,6 @@ public class ShopReviewReply {
 
     private Long userId;
 
-    private Integer userType;
-
     private Long atUserId;
 
     private String content;

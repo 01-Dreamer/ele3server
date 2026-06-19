@@ -27,6 +27,10 @@ public class RiskTextRecord {
      */
     private Integer status;
 
+    private String handleOpinion;
+
+    private LocalDateTime handleTime;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

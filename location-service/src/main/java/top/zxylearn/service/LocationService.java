@@ -25,7 +25,7 @@ public class LocationService {
     private final Duration coordinateTtl;
 
     public LocationService(StringRedisTemplate stringRedisTemplate,
-                           @Value("${location.coordinate.ttl:5m}") Duration coordinateTtl) {
+                           @Value("${location.coordinate.ttl}") Duration coordinateTtl) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.coordinateTtl = coordinateTtl;
     }

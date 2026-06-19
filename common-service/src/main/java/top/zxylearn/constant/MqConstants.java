@@ -12,6 +12,13 @@ public final class MqConstants {
     public static final String HTTP_QUEUE = "ele.risk.http.queue";
     public static final String HTTP_ROUTING_KEY = "ele.risk.http";
 
+    // 店铺ES索引队列
+    public static final String SHOP_EXCHANGE = "ele.shop.exchange";
+    public static final String SHOP_ES_INDEX_DELAY_QUEUE = "ele.shop.es.index.delay.queue";
+    public static final String SHOP_ES_INDEX_QUEUE = "ele.shop.es.index.queue";
+    public static final String SHOP_ES_INDEX_DELAY_ROUTING_KEY = "ele.shop.es.index.delay";
+    public static final String SHOP_ES_INDEX_ROUTING_KEY = "ele.shop.es.index";
+
     // 支付过期队列
     public static final String PAYMENT_EXCHANGE = "ele.payment.exchange";
     public static final String PAYMENT_EXPIRE_DELAY_QUEUE = "ele.payment.expire.delay.queue";

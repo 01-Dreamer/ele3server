@@ -1,25 +1,45 @@
 package top.zxylearn.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import top.zxylearn.constant.MqConstants;
 import top.zxylearn.dto.ShopCreateRequest;
 import top.zxylearn.dto.ShopItemCreateRequest;
+import top.zxylearn.dto.ShopReviewReplyRequest;
 import top.zxylearn.dto.ShopStatusUpdateRequest;
 import top.zxylearn.dto.ShopUpdateRequest;
+import top.zxylearn.dto.shop.ShopEsIndexEventDTO;
+import top.zxylearn.dto.shop.ShopReviewCreateRequest;
+import top.zxylearn.dto.shop.ShopSalesIncreaseRequest;
 import top.zxylearn.entity.Shop;
 import top.zxylearn.entity.ShopItem;
+import top.zxylearn.entity.ShopReview;
+import top.zxylearn.entity.ShopReviewImage;
+import top.zxylearn.entity.ShopReviewReply;
 import top.zxylearn.mapper.ShopItemMapper;
 import top.zxylearn.mapper.ShopMapper;
+import top.zxylearn.mapper.ShopReviewImageMapper;
+import top.zxylearn.mapper.ShopReviewMapper;
+import top.zxylearn.mapper.ShopReviewReplyMapper;
+import top.zxylearn.vo.CursorPageVO;
 import top.zxylearn.vo.ShopItemVO;
+import top.zxylearn.vo.ShopReviewReplyVO;
+import top.zxylearn.vo.ShopReviewVO;
 import top.zxylearn.vo.ShopVO;
 
 import java.math.BigDecimal;
@@ -27,12 +47,16 @@ import java.time.Duration;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class ShopService {
+
+    private static final Logger log = LoggerFactory.getLogger(ShopService.class);
 
     private static final int STATUS_NORMAL = 0;
     private static final int STATUS_BANNED = 1;
@@ -42,14 +66,13 @@ public class ShopService {
     private static final BigDecimal MAX_LONGITUDE = new BigDecimal("180");
     private static final BigDecimal MIN_LATITUDE = new BigDecimal("-90");
     private static final BigDecimal MAX_LATITUDE = new BigDecimal("90");
+    private static final BigDecimal MAX_REVIEW_SCORE = new BigDecimal("5");
+    private static final int MAX_REVIEW_IMAGE_COUNT = 5;
     private static final String SHOP_INFO_KEY_PREFIX = "shop:info:";
     private static final String SHOP_ITEM_LIST_KEY_PREFIX = "shop:item:list:";
     private static final String SHOP_LOCK_KEY_PREFIX = "shop:lock:";
+    private static final String SHOP_ES_INDEX_DELAY_KEY_PREFIX = "shop:es:index-delay:";
     private static final String NULL_CACHE_VALUE = "__NULL__";
-    private static final Duration NULL_CACHE_TTL = Duration.ofMinutes(2);
-    private static final Duration LOCK_TTL = Duration.ofSeconds(5);
-    private static final int CACHE_TTL_JITTER_SECONDS = 60;
-    private static final int NULL_CACHE_TTL_JITTER_SECONDS = 30;
     private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
             Long.class
@@ -57,18 +80,51 @@ public class ShopService {
 
     private final ShopMapper shopMapper;
     private final ShopItemMapper shopItemMapper;
+    private final ShopReviewMapper shopReviewMapper;
+    private final ShopReviewImageMapper shopReviewImageMapper;
+    private final ShopReviewReplyMapper shopReviewReplyMapper;
+    private final RabbitTemplate rabbitTemplate;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final Duration cacheTtl;
+    private final Duration nullCacheTtl;
+    private final Duration lockTtl;
+    private final int cacheTtlJitterSeconds;
+    private final int nullCacheTtlJitterSeconds;
+    private final Duration esIndexDelay;
+    private final int defaultReviewPageSize;
+    private final int maxReviewPageSize;
 
     public ShopService(ShopMapper shopMapper,
                        ShopItemMapper shopItemMapper,
+                       ShopReviewMapper shopReviewMapper,
+                       ShopReviewImageMapper shopReviewImageMapper,
+                       ShopReviewReplyMapper shopReviewReplyMapper,
+                       RabbitTemplate rabbitTemplate,
                        StringRedisTemplate stringRedisTemplate,
-                       @Value("${shop.cache.ttl:10m}") Duration cacheTtl) {
+                       @Value("${shop.cache.ttl}") Duration cacheTtl,
+                       @Value("${shop.cache.null-ttl}") Duration nullCacheTtl,
+                       @Value("${shop.cache.lock-ttl}") Duration lockTtl,
+                       @Value("${shop.cache.ttl-jitter-seconds}") int cacheTtlJitterSeconds,
+                       @Value("${shop.cache.null-ttl-jitter-seconds}") int nullCacheTtlJitterSeconds,
+                       @Value("${shop.es-index.delay}") Duration esIndexDelay,
+                       @Value("${shop.review.page-size.default}") int defaultReviewPageSize,
+                       @Value("${shop.review.page-size.max}") int maxReviewPageSize) {
         this.shopMapper = shopMapper;
         this.shopItemMapper = shopItemMapper;
+        this.shopReviewMapper = shopReviewMapper;
+        this.shopReviewImageMapper = shopReviewImageMapper;
+        this.shopReviewReplyMapper = shopReviewReplyMapper;
+        this.rabbitTemplate = rabbitTemplate;
         this.stringRedisTemplate = stringRedisTemplate;
         this.cacheTtl = cacheTtl;
+        this.nullCacheTtl = nullCacheTtl;
+        this.lockTtl = lockTtl;
+        this.cacheTtlJitterSeconds = cacheTtlJitterSeconds;
+        this.nullCacheTtlJitterSeconds = nullCacheTtlJitterSeconds;
+        this.esIndexDelay = esIndexDelay;
+        this.defaultReviewPageSize = defaultReviewPageSize;
+        this.maxReviewPageSize = maxReviewPageSize;
         this.objectMapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -82,7 +138,7 @@ public class ShopService {
         Shop shop = new Shop();
         shop.setUserId(parseLongId(userId, "用户ID"));
         shop.setName(checkRequiredText(request.getName(), 100, "店铺名称"));
-        shop.setAvatar(checkRequiredText(request.getAvatar(), 500, "店铺头像URL"));
+        shop.setAvatar(checkOptionalText(request.getAvatar(), 500, "店铺头像URL"));
         shop.setDescription(checkRequiredText(request.getDescription(), 500, "店铺描述"));
         shop.setAddress(checkRequiredText(request.getAddress(), 255, "店铺地址"));
         shop.setLongitude(checkRequiredLongitude(request.getLongitude()));
@@ -97,6 +153,7 @@ public class ShopService {
         shopMapper.insert(shop);
         ShopVO shopVO = toShopVO(shop);
         cacheShop(shopVO);
+        publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_UPSERT);
         return shopVO;
     }
 
@@ -107,16 +164,16 @@ public class ShopService {
         }
         Shop shop = getOwnShop(userId, shopId);
         checkShopAvailable(shop);
-        if (request.getName() != null) {
+        if (hasText(request.getName())) {
             shop.setName(checkRequiredText(request.getName(), 100, "店铺名称"));
         }
-        if (request.getAvatar() != null) {
-            shop.setAvatar(checkRequiredText(request.getAvatar(), 500, "店铺头像URL"));
+        if (hasText(request.getAvatar())) {
+            shop.setAvatar(checkOptionalText(request.getAvatar(), 500, "店铺头像URL"));
         }
-        if (request.getDescription() != null) {
+        if (hasText(request.getDescription())) {
             shop.setDescription(checkRequiredText(request.getDescription(), 500, "店铺描述"));
         }
-        if (request.getAddress() != null) {
+        if (hasText(request.getAddress())) {
             shop.setAddress(checkRequiredText(request.getAddress(), 255, "店铺地址"));
         }
         if (request.getLongitude() != null) {
@@ -128,15 +185,16 @@ public class ShopService {
         if (request.getDeliveryFee() != null) {
             shop.setDeliveryFee(checkMoney(request.getDeliveryFee(), "配送费"));
         }
-        if (request.getOpenTime() != null) {
+        if (hasText(request.getOpenTime())) {
             shop.setOpenTime(parseRequiredTime(request.getOpenTime(), "开始营业时间"));
         }
-        if (request.getCloseTime() != null) {
+        if (hasText(request.getCloseTime())) {
             shop.setCloseTime(parseRequiredTime(request.getCloseTime(), "结束营业时间"));
         }
         shopMapper.updateById(shop);
         ShopVO shopVO = toShopVO(shopMapper.selectById(shop.getId()));
         cacheShop(shopVO);
+        publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_UPSERT);
         return shopVO;
     }
 
@@ -151,11 +209,12 @@ public class ShopService {
         item.setShopId(shop.getId());
         item.setName(checkRequiredText(request.getName(), 100, "商品名称"));
         item.setImage(checkOptionalText(request.getImage(), 500, "商品图片URL"));
-        item.setDescription(checkOptionalText(request.getDescription(), 500, "商品描述"));
+        item.setDescription(checkRequiredText(request.getDescription(), 500, "商品描述"));
         item.setPrice(checkMoney(request.getPrice(), "商品价格"));
         item.setStatus(STATUS_NORMAL);
         shopItemMapper.insert(item);
         evictShopItemListCache(shop.getId());
+        publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_UPSERT);
         return toShopItemVO(item);
     }
 
@@ -169,6 +228,7 @@ public class ShopService {
         }
         shopItemMapper.deleteById(item.getId());
         evictShopItemListCache(shop.getId());
+        publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_UPSERT);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -188,6 +248,7 @@ public class ShopService {
         ShopItem item = getShopItemById(itemId);
         shopItemMapper.deleteById(item.getId());
         evictShopItemListCache(item.getShopId());
+        publishShopEsIndexAfterCommit(item.getShopId(), ShopEsIndexEventDTO.ACTION_UPSERT);
     }
 
     public ShopVO getShop(String shopId) {
@@ -210,6 +271,161 @@ public class ShopService {
         return listShopItemsWithCache(shopVO.getShopId());
     }
 
+    public CursorPageVO<ShopReviewVO> listReviews(String shopId, String cursor, Integer size) {
+        ShopVO shopVO = getShop(shopId);
+        Long normalizedShopId = parseLongId(shopVO.getShopId(), "店铺ID");
+        Long cursorId = parseNullableLongId(cursor, "游标");
+        int pageSize = normalizeReviewPageSize(size);
+
+        LambdaQueryWrapper<ShopReview> wrapper = new LambdaQueryWrapper<ShopReview>()
+                .eq(ShopReview::getShopId, normalizedShopId)
+                .orderByDesc(ShopReview::getId)
+                .last("LIMIT " + (pageSize + 1));
+        if (cursorId != null) {
+            wrapper.lt(ShopReview::getId, cursorId);
+        }
+
+        List<ShopReview> reviews = shopReviewMapper.selectList(wrapper);
+        boolean hasMore = reviews.size() > pageSize;
+        List<ShopReview> pageReviews = hasMore ? reviews.subList(0, pageSize) : reviews;
+        Map<Long, List<String>> imageMap = selectReviewImageMap(pageReviews.stream().map(ShopReview::getId).toList());
+        List<ShopReviewVO> records = pageReviews.stream()
+                .map(review -> toShopReviewVO(review, imageMap.getOrDefault(review.getId(), Collections.emptyList())))
+                .toList();
+        return new CursorPageVO<>(records, buildNextCursor(records, hasMore), hasMore);
+    }
+
+    public CursorPageVO<ShopReviewReplyVO> listReviewReplies(String reviewId, String cursor, Integer size) {
+        ShopReview review = getAvailableReview(reviewId);
+        Long cursorId = parseNullableLongId(cursor, "游标");
+        int pageSize = normalizeReviewPageSize(size);
+
+        LambdaQueryWrapper<ShopReviewReply> wrapper = new LambdaQueryWrapper<ShopReviewReply>()
+                .eq(ShopReviewReply::getReviewId, review.getId())
+                .orderByDesc(ShopReviewReply::getId)
+                .last("LIMIT " + (pageSize + 1));
+        if (cursorId != null) {
+            wrapper.lt(ShopReviewReply::getId, cursorId);
+        }
+
+        List<ShopReviewReply> replies = shopReviewReplyMapper.selectList(wrapper);
+        boolean hasMore = replies.size() > pageSize;
+        List<ShopReviewReply> pageReplies = hasMore ? replies.subList(0, pageSize) : replies;
+        List<ShopReviewReplyVO> records = pageReplies.stream().map(this::toShopReviewReplyVO).toList();
+        return new CursorPageVO<>(records, buildReplyNextCursor(records, hasMore), hasMore);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteReviewByAdmin(String reviewId) {
+        Long id = parseLongId(reviewId, "评价ID");
+        ShopReview review = shopReviewMapper.selectById(id);
+        if (review == null) {
+            throw new IllegalArgumentException("评价不存在");
+        }
+        Long shopId = review.getShopId();
+        shopReviewReplyMapper.delete(new LambdaQueryWrapper<ShopReviewReply>().eq(ShopReviewReply::getReviewId, id));
+        shopReviewImageMapper.delete(new LambdaQueryWrapper<ShopReviewImage>().eq(ShopReviewImage::getReviewId, id));
+        shopReviewMapper.deleteById(id);
+        refreshShopReviewSummary(shopId);
+        Shop shop = shopMapper.selectById(shopId);
+        if (shop != null) {
+            cacheShop(toShopVO(shop));
+            publishShopEsIndexAfterCommit(shopId, ShopEsIndexEventDTO.ACTION_UPSERT);
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteReviewReplyByAdmin(String replyId) {
+        Long id = parseLongId(replyId, "评价回复ID");
+        int deleted = shopReviewReplyMapper.deleteById(id);
+        if (deleted <= 0) {
+            throw new IllegalArgumentException("评价回复不存在");
+        }
+    }
+
+
+    @Transactional(rollbackFor = Exception.class)
+    public void replyReview(String userId, ShopReviewReplyRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("回复参数不能为空");
+        }
+        Long reviewId = parseLongId(request.getReviewId(), "评价ID");
+        Long replyUserId = parseLongId(userId, "用户ID");
+        Long atUserId = parseNullableLongId(request.getAtUserId(), "被@用户ID");
+        String content = checkRequiredText(request.getContent(), 2000, "回复内容");
+
+        getAvailableReview(String.valueOf(reviewId));
+
+        ShopReviewReply reply = new ShopReviewReply();
+        reply.setReviewId(reviewId);
+        reply.setUserId(replyUserId);
+        reply.setAtUserId(atUserId);
+        reply.setContent(content);
+        shopReviewReplyMapper.insert(reply);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void createReview(ShopReviewCreateRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("评价参数不能为空");
+        }
+        Long orderId = parseLongId(request.getOrderId(), "订单ID");
+        Long userId = parseLongId(request.getUserId(), "用户ID");
+        Long shopId = parseLongId(request.getShopId(), "店铺ID");
+        BigDecimal score = checkReviewScore(request.getScore());
+        String content = checkRequiredText(request.getContent(), 2000, "评价内容");
+        List<String> images = checkReviewImages(request.getImages());
+
+        Shop shop = getShopById(String.valueOf(shopId));
+        checkShopAvailable(shop);
+
+        ShopReview review = new ShopReview();
+        review.setOrderId(orderId);
+        review.setShopId(shopId);
+        review.setUserId(userId);
+        review.setScore(score);
+        review.setContent(content);
+        shopReviewMapper.insert(review);
+
+        for (int i = 0; i < images.size(); i++) {
+            ShopReviewImage image = new ShopReviewImage();
+            image.setReviewId(review.getId());
+            image.setImage(images.get(i));
+            image.setSort(i);
+            shopReviewImageMapper.insert(image);
+        }
+
+        updateShopReviewSummary(shopId, score);
+        Shop updatedShop = shopMapper.selectById(shopId);
+        if (updatedShop != null) {
+            cacheShop(toShopVO(updatedShop));
+        }
+        publishDelayedShopEsIndexAfterCommit(shopId);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void increaseSales(ShopSalesIncreaseRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("店铺销量更新参数不能为空");
+        }
+        Long shopId = parseLongId(request.getShopId(), "店铺ID");
+        Long salesDelta = request.getSalesDelta();
+        if (salesDelta == null || salesDelta <= 0) {
+            throw new IllegalArgumentException("销量增量必须大于0");
+        }
+        int updated = shopMapper.update(null, new LambdaUpdateWrapper<Shop>()
+                .eq(Shop::getId, shopId)
+                .setSql("sales_count = sales_count + " + salesDelta));
+        if (updated <= 0) {
+            throw new IllegalArgumentException("店铺不存在");
+        }
+        Shop shop = shopMapper.selectById(shopId);
+        if (shop != null) {
+            cacheShop(toShopVO(shop));
+        }
+        publishDelayedShopEsIndexAfterCommit(shopId);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public ShopVO updateShopStatus(String shopId, ShopStatusUpdateRequest request) {
         if (request == null) {
@@ -227,7 +443,113 @@ public class ShopService {
         shopMapper.updateById(shop);
         ShopVO shopVO = toShopVO(shopMapper.selectById(shop.getId()));
         cacheShop(shopVO);
+        publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_UPSERT);
         return shopVO;
+    }
+
+
+    private void updateShopReviewSummary(Long shopId, BigDecimal score) {
+        int updated = shopMapper.update(null, new LambdaUpdateWrapper<Shop>()
+                .eq(Shop::getId, shopId)
+                .setSql("review_score = round(((review_score * review_count) + "
+                        + score.toPlainString() + ") / (review_count + 1), 1)")
+                .setSql("review_count = review_count + 1"));
+        if (updated <= 0) {
+            throw new IllegalArgumentException("店铺不存在");
+        }
+    }
+
+    private void refreshShopReviewSummary(Long shopId) {
+        List<ShopReview> reviews = shopReviewMapper.selectList(new LambdaQueryWrapper<ShopReview>()
+                .eq(ShopReview::getShopId, shopId));
+        long reviewCount = reviews.size();
+        BigDecimal reviewScore = ZERO_SCORE;
+        if (reviewCount > 0) {
+            BigDecimal totalScore = reviews.stream()
+                    .map(ShopReview::getScore)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            reviewScore = totalScore.divide(BigDecimal.valueOf(reviewCount), 1, java.math.RoundingMode.HALF_UP);
+        }
+        int updated = shopMapper.update(null, new LambdaUpdateWrapper<Shop>()
+                .eq(Shop::getId, shopId)
+                .set(Shop::getReviewCount, reviewCount)
+                .set(Shop::getReviewScore, reviewScore));
+        if (updated <= 0) {
+            throw new IllegalArgumentException("店铺不存在");
+        }
+    }
+
+    private Map<Long, List<String>> selectReviewImageMap(List<Long> reviewIds) {
+        if (reviewIds == null || reviewIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<ShopReviewImage> images = shopReviewImageMapper.selectList(new LambdaQueryWrapper<ShopReviewImage>()
+                .in(ShopReviewImage::getReviewId, reviewIds)
+                .orderByAsc(ShopReviewImage::getReviewId)
+                .orderByAsc(ShopReviewImage::getSort));
+        Map<Long, List<String>> imageMap = new LinkedHashMap<>();
+        for (ShopReviewImage image : images) {
+            imageMap.computeIfAbsent(image.getReviewId(), key -> new java.util.ArrayList<>()).add(image.getImage());
+        }
+        return imageMap;
+    }
+
+    private int normalizeReviewPageSize(Integer size) {
+        if (size == null) {
+            return defaultReviewPageSize;
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("分页大小必须大于0");
+        }
+        return Math.min(size, maxReviewPageSize);
+    }
+
+    private String buildNextCursor(List<ShopReviewVO> records, boolean hasMore) {
+        if (!hasMore || records == null || records.isEmpty()) {
+            return null;
+        }
+        return records.get(records.size() - 1).getReviewId();
+    }
+
+    private String buildReplyNextCursor(List<ShopReviewReplyVO> records, boolean hasMore) {
+        if (!hasMore || records == null || records.isEmpty()) {
+            return null;
+        }
+        return records.get(records.size() - 1).getReplyId();
+    }
+
+    private ShopReview getAvailableReview(String reviewId) {
+        Long id = parseLongId(reviewId, "评价ID");
+        ShopReview review = shopReviewMapper.selectById(id);
+        if (review == null) {
+            throw new IllegalArgumentException("评价不存在");
+        }
+        Shop shop = getShopById(String.valueOf(review.getShopId()));
+        checkShopAvailable(shop);
+        return review;
+    }
+
+
+    private BigDecimal checkReviewScore(BigDecimal score) {
+        if (score == null) {
+            throw new IllegalArgumentException("评价分数不能为空");
+        }
+        if (score.compareTo(BigDecimal.ZERO) < 0 || score.compareTo(MAX_REVIEW_SCORE) > 0) {
+            throw new IllegalArgumentException("评价分数必须在0到5之间");
+        }
+        return score;
+    }
+
+    private List<String> checkReviewImages(List<String> images) {
+        if (images == null || images.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (images.size() > MAX_REVIEW_IMAGE_COUNT) {
+            throw new IllegalArgumentException("评价图片最多5张");
+        }
+        return images.stream()
+                .map(image -> checkRequiredText(image, 500, "评价图片URL"))
+                .toList();
     }
 
     private Shop getShopById(String shopId) {
@@ -261,11 +583,95 @@ public class ShopService {
         return item;
     }
 
+
+    private void publishShopEsIndexAfterCommit(Long shopId, String action) {
+        if (shopId == null) {
+            return;
+        }
+        ShopEsIndexEventDTO event = new ShopEsIndexEventDTO(
+                UUID.randomUUID().toString(),
+                String.valueOf(shopId),
+                action,
+                System.currentTimeMillis()
+        );
+        Runnable publisher = () -> publishShopEsIndex(event);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publisher.run();
+                }
+            });
+            return;
+        }
+        publisher.run();
+    }
+
+    private void publishShopEsIndex(ShopEsIndexEventDTO event) {
+        try {
+            rabbitTemplate.convertAndSend(MqConstants.SHOP_EXCHANGE, MqConstants.SHOP_ES_INDEX_ROUTING_KEY, event);
+        } catch (RuntimeException ex) {
+            log.warn("店铺ES索引消息投递失败 shopId={}, action={}", event.getShopId(), event.getAction(), ex);
+        }
+    }
+
+    private void publishDelayedShopEsIndexAfterCommit(Long shopId) {
+        if (shopId == null) {
+            return;
+        }
+        Runnable publisher = () -> publishDelayedShopEsIndex(shopId);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publisher.run();
+                }
+            });
+            return;
+        }
+        publisher.run();
+    }
+
+    private void publishDelayedShopEsIndex(Long shopId) {
+        String key = buildShopEsIndexDelayKey(shopId);
+        String eventId = UUID.randomUUID().toString();
+        long delayMillis = esIndexDelayMillis();
+        Boolean acquired = stringRedisTemplate.opsForValue().setIfAbsent(key, eventId, Duration.ofMillis(delayMillis));
+        if (!Boolean.TRUE.equals(acquired)) {
+            return;
+        }
+
+        ShopEsIndexEventDTO event = new ShopEsIndexEventDTO(
+                eventId,
+                String.valueOf(shopId),
+                ShopEsIndexEventDTO.ACTION_UPSERT,
+                System.currentTimeMillis()
+        );
+        try {
+            rabbitTemplate.convertAndSend(MqConstants.SHOP_EXCHANGE, MqConstants.SHOP_ES_INDEX_DELAY_ROUTING_KEY, event,
+                    message -> {
+                        message.getMessageProperties().setExpiration(String.valueOf(delayMillis));
+                        return message;
+                    });
+        } catch (RuntimeException ex) {
+            stringRedisTemplate.delete(key);
+            log.warn("店铺ES索引延迟消息投递失败 shopId={}", shopId, ex);
+        }
+    }
+
+    private long esIndexDelayMillis() {
+        if (esIndexDelay == null || esIndexDelay.isNegative() || esIndexDelay.isZero()) {
+            throw new IllegalStateException("shop.es-index.delay 配置必须大于0");
+        }
+        return esIndexDelay.toMillis();
+    }
+
     private void deleteShopWithItems(Shop shop) {
         shopItemMapper.delete(new LambdaQueryWrapper<ShopItem>().eq(ShopItem::getShopId, shop.getId()));
         shopMapper.deleteById(shop.getId());
         evictShopCache(shop.getId());
         evictShopItemListCache(shop.getId());
+        publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_DELETE);
     }
 
     private void checkShopAvailable(Shop shop) {
@@ -444,7 +850,7 @@ public class ShopService {
 
     private String tryLock(String key) {
         String token = UUID.randomUUID().toString();
-        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(key, token, LOCK_TTL);
+        Boolean locked = stringRedisTemplate.opsForValue().setIfAbsent(key, token, lockTtl);
         return Boolean.TRUE.equals(locked) ? token : null;
     }
 
@@ -472,11 +878,11 @@ public class ShopService {
     }
 
     private Duration cacheTtlWithJitter() {
-        return cacheTtl.plusSeconds(ThreadLocalRandom.current().nextInt(CACHE_TTL_JITTER_SECONDS + 1));
+        return cacheTtl.plusSeconds(ThreadLocalRandom.current().nextInt(Math.max(cacheTtlJitterSeconds, 0) + 1));
     }
 
     private Duration nullCacheTtlWithJitter() {
-        return NULL_CACHE_TTL.plusSeconds(ThreadLocalRandom.current().nextInt(NULL_CACHE_TTL_JITTER_SECONDS + 1));
+        return nullCacheTtl.plusSeconds(ThreadLocalRandom.current().nextInt(Math.max(nullCacheTtlJitterSeconds, 0) + 1));
     }
 
     private String buildShopInfoKey(String shopId) {
@@ -485,6 +891,10 @@ public class ShopService {
 
     private String buildShopItemListKey(String shopId) {
         return SHOP_ITEM_LIST_KEY_PREFIX + shopId;
+    }
+
+    private String buildShopEsIndexDelayKey(Long shopId) {
+        return SHOP_ES_INDEX_DELAY_KEY_PREFIX + shopId;
     }
 
     private String buildShopInfoLockKey(String shopId) {
@@ -540,6 +950,39 @@ public class ShopService {
         } catch (NumberFormatException ex) {
             throw new IllegalArgumentException(fieldName + "格式不正确");
         }
+    }
+
+
+
+    private ShopReviewVO toShopReviewVO(ShopReview review, List<String> images) {
+        return new ShopReviewVO(
+                String.valueOf(review.getId()),
+                String.valueOf(review.getOrderId()),
+                String.valueOf(review.getShopId()),
+                String.valueOf(review.getUserId()),
+                review.getScore(),
+                review.getContent(),
+                images,
+                review.getCreateTime()
+        );
+    }
+
+    private ShopReviewReplyVO toShopReviewReplyVO(ShopReviewReply reply) {
+        return new ShopReviewReplyVO(
+                String.valueOf(reply.getId()),
+                String.valueOf(reply.getReviewId()),
+                String.valueOf(reply.getUserId()),
+                reply.getAtUserId() == null ? null : String.valueOf(reply.getAtUserId()),
+                reply.getContent(),
+                reply.getCreateTime()
+        );
+    }
+
+    private Long parseNullableLongId(String value, String fieldName) {
+        if (!hasText(value)) {
+            return null;
+        }
+        return parseLongId(value, fieldName);
     }
 
     private String checkRequiredText(String value, int maxLength, String fieldName) {

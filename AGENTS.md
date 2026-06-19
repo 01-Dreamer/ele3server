@@ -155,6 +155,9 @@ shop:item:list:{shopId}
 
 # shop-service 查询回源互斥锁 -> 简单标量，短 TTL，用于防止热点 key 击穿
 shop:lock:{scene}:{identifier}
+
+# shop-service ES索引延迟派发去重锁 -> 简单标量，TTL 与 MQ 延迟时间一致，用于合并评价/销量频繁变更
+shop:es:index-delay:{shopId}
 ```
 
 新增 Redis Key 时先检查是否能复用上面的结构；如果需要新增一类长期 key，要在本节补充用途、value 类型和 TTL 策略。
@@ -195,6 +198,7 @@ Nacos 公共配置约定：
 - OpenAI / 大模型：`openai`
 - 内部访问令牌：`internal.token`
 
+各微服务自己的运行参数必须显式写在本服务 `application.yml` 中，例如 TTL、延迟时间、文件大小限制、默认过期分钟数、缓存锁时间和随机抖动时间；代码中不要通过 `@Value("${xxx:默认值}")` 或固定常量隐藏这些配置。
 
 配置中心 `common-dev.yaml` 格式参考，真实值必须只放在 Nacos 中，文档中一律使用占位符：
 

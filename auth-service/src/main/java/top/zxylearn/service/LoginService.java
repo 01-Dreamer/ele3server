@@ -44,7 +44,7 @@ public class LoginService {
     public LoginService(AuthAccountMapper authAccountMapper,
                         RiskCaptchaClient riskCaptchaClient,
                         StringRedisTemplate stringRedisTemplate,
-                        @Value("${auth.login.ttl:7d}") Duration loginTtl) {
+                        @Value("${auth.login.ttl}") Duration loginTtl) {
         this.authAccountMapper = authAccountMapper;
         this.riskCaptchaClient = riskCaptchaClient;
         this.stringRedisTemplate = stringRedisTemplate;

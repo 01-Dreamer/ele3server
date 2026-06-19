@@ -29,14 +29,28 @@ public class RabbitMessageConfig {
                 .deadLetterExchange(MqConstants.DLX_EXCHANGE)
                 .deadLetterRoutingKey(MqConstants.DLX_ROUTING_KEY)
                 .build();
+        Queue riskScoreIncreaseQueue = QueueBuilder.durable(MqConstants.RISK_SCORE_INCREASE_QUEUE)
+                .deadLetterExchange(MqConstants.DLX_EXCHANGE)
+                .deadLetterRoutingKey(MqConstants.DLX_ROUTING_KEY)
+                .build();
+        Queue riskTextRecordQueue = QueueBuilder.durable(MqConstants.RISK_TEXT_RECORD_QUEUE)
+                .deadLetterExchange(MqConstants.DLX_EXCHANGE)
+                .deadLetterRoutingKey(MqConstants.DLX_ROUTING_KEY)
+                .build();
         Queue deadLetterQueue = QueueBuilder.durable(MqConstants.DLX_QUEUE).build();
         Binding riskHttpBinding = BindingBuilder.bind(riskHttpQueue)
                 .to(riskExchange)
                 .with(MqConstants.HTTP_ROUTING_KEY);
+        Binding riskScoreIncreaseBinding = BindingBuilder.bind(riskScoreIncreaseQueue)
+                .to(riskExchange)
+                .with(MqConstants.RISK_SCORE_INCREASE_ROUTING_KEY);
+        Binding riskTextRecordBinding = BindingBuilder.bind(riskTextRecordQueue)
+                .to(riskExchange)
+                .with(MqConstants.RISK_TEXT_RECORD_ROUTING_KEY);
         Binding deadLetterBinding = BindingBuilder.bind(deadLetterQueue)
                 .to(deadLetterExchange)
                 .with(MqConstants.DLX_ROUTING_KEY);
-        return new Declarables(riskExchange, deadLetterExchange, riskHttpQueue, deadLetterQueue,
-                riskHttpBinding, deadLetterBinding);
+        return new Declarables(riskExchange, deadLetterExchange, riskHttpQueue, riskScoreIncreaseQueue, riskTextRecordQueue, deadLetterQueue,
+                riskHttpBinding, riskScoreIncreaseBinding, riskTextRecordBinding, deadLetterBinding);
     }
 }

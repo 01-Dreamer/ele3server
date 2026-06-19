@@ -38,7 +38,7 @@ public class EmailCaptchaService {
                                StringRedisTemplate stringRedisTemplate,
                                JavaMailSender javaMailSender,
                                @Value("${spring.mail.username}") String mailFrom,
-                               @Value("${auth.email-captcha.ttl:5m}") Duration ttl) {
+                               @Value("${auth.email-captcha.ttl}") Duration ttl) {
         this.authAccountMapper = authAccountMapper;
         this.riskCaptchaClient = riskCaptchaClient;
         this.stringRedisTemplate = stringRedisTemplate;

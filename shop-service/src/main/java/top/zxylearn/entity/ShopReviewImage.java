@@ -18,5 +18,7 @@ public class ShopReviewImage {
 
     private String image;
 
+    private Integer sort;
+
     private LocalDateTime createTime;
 }
