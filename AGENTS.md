@@ -146,6 +146,15 @@ risk:captcha:text:{captchaId}
 
 # tianai-captcha 滑块验证码相关 key 使用 captcha.prefix 控制，当前前缀为 risk:captcha
 risk:captcha:...
+
+# shop-service 店铺详情缓存 -> ShopVO，TTL = shop.cache.ttl + 随机抖动，更新/状态变更时刷新，删除时失效；不存在店铺使用短 TTL 空值缓存防穿透
+shop:info:{shopId}
+
+# shop-service 店铺商品列表缓存 -> List<ShopItemVO>，TTL = shop.cache.ttl + 随机抖动，商品新增/删除或店铺删除时失效；查询回源使用互斥锁防击穿
+shop:item:list:{shopId}
+
+# shop-service 查询回源互斥锁 -> 简单标量，短 TTL，用于防止热点 key 击穿
+shop:lock:{scene}:{identifier}
 ```
 
 新增 Redis Key 时先检查是否能复用上面的结构；如果需要新增一类长期 key，要在本节补充用途、value 类型和 TTL 策略。

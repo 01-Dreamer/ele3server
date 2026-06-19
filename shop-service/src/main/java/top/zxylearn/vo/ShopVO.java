@@ -1,22 +1,24 @@
-package top.zxylearn.entity;
+package top.zxylearn.vo;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableName;
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 
 @Data
-@TableName("shop")
-public class Shop {
+@NoArgsConstructor
+@AllArgsConstructor
+@Schema(description = "店铺信息")
+public class ShopVO {
 
-    @TableId(value = "id", type = IdType.ASSIGN_ID)
-    private Long id;
+    @Schema(description = "店铺ID，雪花ID使用字符串传输")
+    private String shopId;
 
-    private Long userId;
+    @Schema(description = "店主用户ID，雪花ID使用字符串传输")
+    private String userId;
 
     private String name;
 
@@ -32,9 +34,9 @@ public class Shop {
 
     private BigDecimal deliveryFee;
 
-    private LocalTime openTime;
+    private String openTime;
 
-    private LocalTime closeTime;
+    private String closeTime;
 
     private BigDecimal reviewScore;
 
@@ -42,9 +44,6 @@ public class Shop {
 
     private Long salesCount;
 
-    /**
-     * 店铺状态：0正常，1封禁
-     */
     private Integer status;
 
     private LocalDateTime createTime;
