@@ -28,6 +28,16 @@ public class MessageSession {
 
     private Long largerUserUnreadCount;
 
+    /**
+     * 较小用户是否显示会话：0不显示，1显示
+     */
+    private Integer smallerUserShow;
+
+    /**
+     * 较大用户是否显示会话：0不显示，1显示
+     */
+    private Integer largerUserShow;
+
     private LocalDateTime createTime;
 
     private LocalDateTime updateTime;

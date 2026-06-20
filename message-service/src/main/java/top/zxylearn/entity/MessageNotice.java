@@ -8,8 +8,8 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("message_info")
-public class MessageInfo {
+@TableName("message_notice")
+public class MessageNotice {
 
     @TableId(value = "id", type = IdType.ASSIGN_ID)
     private Long id;
