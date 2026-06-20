@@ -2,12 +2,15 @@ package top.zxylearn.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import top.zxylearn.OAUTH.YnuOAuth;
 import top.zxylearn.dto.ChangePasswordRequest;
 import top.zxylearn.dto.EmailCaptchaSendRequest;
 import top.zxylearn.result.Result;
@@ -22,9 +25,37 @@ import java.util.Map;
 public class ApiController {
 
     private final AuthPasswordService authPasswordService;
+    private final YnuOAuth ynuOAuth;
 
-    public ApiController(AuthPasswordService authPasswordService) {
+    public ApiController(AuthPasswordService authPasswordService,
+                         YnuOAuth ynuOAuth) {
         this.authPasswordService = authPasswordService;
+        this.ynuOAuth = ynuOAuth;
+    }
+
+    @Operation(summary = "获取YNU账号绑定二维码")
+    @GetMapping("/ynu-oauth/get-qrcode")
+    public Result<Map<String, Object>> getYnuQrCode() {
+        try {
+            return Result.success(ynuOAuth.getQrCode());
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "YNU二维码获取失败" : ex.getMessage());
+        }
+    }
+
+    @Operation(summary = "轮询YNU账号绑定结果")
+    @GetMapping("/ynu-oauth/check-qrcode")
+    public Result<?> checkYnuQrCode(@RequestHeader("X-User-Id") String userId,
+                                    @RequestParam("uuid") String uuid) {
+        try {
+            return Result.success(ynuOAuth.checkQrCodeAndBind(userId, uuid));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "YNU扫码结果轮询失败" : ex.getMessage());
+        }
     }
 
     @Operation(summary = "修改密码")

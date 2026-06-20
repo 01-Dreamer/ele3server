@@ -3,11 +3,14 @@ package top.zxylearn.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import top.zxylearn.OAUTH.YnuOAuth;
 import top.zxylearn.dto.EmailCaptchaSendRequest;
 import top.zxylearn.dto.ForgotPasswordResetRequest;
 import top.zxylearn.dto.LoginRequest;
@@ -33,15 +36,43 @@ public class PublicController {
     private final RegisterService registerService;
     private final LoginService loginService;
     private final AuthPasswordService authPasswordService;
+    private final YnuOAuth ynuOAuth;
 
     public PublicController(EmailCaptchaService emailCaptchaService,
                             RegisterService registerService,
                             LoginService loginService,
-                            AuthPasswordService authPasswordService) {
+                            AuthPasswordService authPasswordService,
+                            YnuOAuth ynuOAuth) {
         this.emailCaptchaService = emailCaptchaService;
         this.registerService = registerService;
         this.loginService = loginService;
         this.authPasswordService = authPasswordService;
+        this.ynuOAuth = ynuOAuth;
+    }
+
+    @Operation(summary = "获取YNU扫码登录二维码")
+    @GetMapping("/ynu-oauth/get-qrcode")
+    public Result<Map<String, Object>> getYnuQrCode() {
+        try {
+            return Result.success(ynuOAuth.getQrCode());
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "YNU二维码获取失败" : ex.getMessage());
+        }
+    }
+
+    @Operation(summary = "轮询YNU扫码登录结果")
+    @GetMapping("/ynu-oauth/check-qrcode")
+    public Result<?> checkYnuQrCode(@RequestParam("uuid") String uuid,
+                                    HttpServletRequest httpServletRequest) {
+        try {
+            return Result.success(ynuOAuth.checkQrCodeAndLogin(uuid, IpUtils.getClientIp(httpServletRequest)));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "YNU扫码登录轮询失败" : ex.getMessage());
+        }
     }
 
     @Operation(summary = "获取注册邮箱验证码")

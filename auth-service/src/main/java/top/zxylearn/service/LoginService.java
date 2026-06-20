@@ -72,6 +72,25 @@ public class LoginService {
             throw new IllegalArgumentException("账号状态异常");
         }
 
+        return buildLoginResult(account, loginIp);
+    }
+
+    public LoginVO loginByUserId(String userId, String loginIp) {
+        Long parsedUserId = parseUserId(userId);
+        AuthAccount account = authAccountMapper.selectById(parsedUserId);
+        if (account == null) {
+            throw new IllegalArgumentException("账号不存在");
+        }
+        if (account.getStatus() != null && account.getStatus() == BANNED_STATUS) {
+            throw new IllegalArgumentException("账号已被封禁");
+        }
+        if (account.getStatus() == null || account.getStatus() != NORMAL_STATUS) {
+            throw new IllegalArgumentException("账号状态异常");
+        }
+        return buildLoginResult(account, loginIp);
+    }
+
+    private LoginVO buildLoginResult(AuthAccount account, String loginIp) {
         String token = UUID.randomUUID().toString().replace("-", "");
         LoginUserVO userInfo = new LoginUserVO(
                 String.valueOf(account.getUserId()),
@@ -79,7 +98,6 @@ public class LoginService {
                 account.getRole(),
                 account.getStatus()
         );
-
         cacheLoginInfo(token, userInfo, loginIp);
         return new LoginVO(token, userInfo);
     }
@@ -108,6 +126,17 @@ public class LoginService {
             if (!Boolean.TRUE.equals(stringRedisTemplate.hasKey(buildLoginTokenKey(token)))) {
                 stringRedisTemplate.opsForSet().remove(tokensKey, token);
             }
+        }
+    }
+
+    private Long parseUserId(String userId) {
+        if (userId == null || userId.isBlank()) {
+            throw new IllegalArgumentException("用户ID不能为空");
+        }
+        try {
+            return Long.valueOf(userId.trim());
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("用户ID格式错误");
         }
     }
 
