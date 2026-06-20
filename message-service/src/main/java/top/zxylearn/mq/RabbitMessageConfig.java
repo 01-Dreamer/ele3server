@@ -38,14 +38,14 @@ public class RabbitMessageConfig {
     public Declarables webSocketMessageDeclarables(Queue webSocketBroadcastQueue) {
         TopicExchange messageExchange = new TopicExchange(MqConstants.MESSAGE_EXCHANGE, true, false);
         DirectExchange deadLetterExchange = new DirectExchange(MqConstants.DLX_EXCHANGE, true, false);
-        Queue chatPersistQueue = QueueBuilder.durable(MqConstants.MESSAGE_CHAT_PERSIST_QUEUE)
+        Queue persistQueue = QueueBuilder.durable(MqConstants.MESSAGE_PERSIST_QUEUE)
                 .deadLetterExchange(MqConstants.DLX_EXCHANGE)
                 .deadLetterRoutingKey(MqConstants.DLX_ROUTING_KEY)
                 .build();
         Queue deadLetterQueue = QueueBuilder.durable(MqConstants.DLX_QUEUE).build();
-        Binding chatPersistBinding = BindingBuilder.bind(chatPersistQueue)
+        Binding persistBinding = BindingBuilder.bind(persistQueue)
                 .to(messageExchange)
-                .with(MqConstants.MESSAGE_CHAT_PERSIST_ROUTING_KEY);
+                .with(MqConstants.MESSAGE_WS_ROUTING_KEY);
         Binding messageBinding = BindingBuilder.bind(webSocketBroadcastQueue)
                 .to(messageExchange)
                 .with(MqConstants.MESSAGE_WS_ROUTING_KEY);
@@ -53,7 +53,7 @@ public class RabbitMessageConfig {
                 .to(deadLetterExchange)
                 .with(MqConstants.DLX_ROUTING_KEY);
         return new Declarables(messageExchange, deadLetterExchange,
-                chatPersistQueue, deadLetterQueue, webSocketBroadcastQueue,
-                chatPersistBinding, messageBinding, deadLetterBinding);
+                persistQueue, deadLetterQueue, webSocketBroadcastQueue,
+                persistBinding, messageBinding, deadLetterBinding);
     }
 }

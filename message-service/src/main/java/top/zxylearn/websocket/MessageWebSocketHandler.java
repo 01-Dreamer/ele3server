@@ -81,7 +81,6 @@ public class MessageWebSocketHandler extends TextWebSocketHandler {
         }
         log.info("收到WebSocket CHAT消息 senderId={}, receiverId={}", dto.getSenderId(), dto.getReceiverId());
         try {
-            rabbitTemplate.convertAndSend(MqConstants.MESSAGE_EXCHANGE, MqConstants.MESSAGE_CHAT_PERSIST_ROUTING_KEY, dto);
             rabbitTemplate.convertAndSend(MqConstants.MESSAGE_EXCHANGE, MqConstants.MESSAGE_WS_ROUTING_KEY, dto);
         } catch (RuntimeException ex) {
             log.warn("WebSocket CHAT消息投递MQ失败 senderId={}, receiverId={}", dto.getSenderId(), dto.getReceiverId(), ex);

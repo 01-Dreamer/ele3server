@@ -8,7 +8,6 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import top.zxylearn.dto.message.WebSocketMessageDTO;
-import top.zxylearn.service.MessageNoticeService;
 import top.zxylearn.websocket.WebSocketSessionManager;
 
 import java.nio.charset.StandardCharsets;
@@ -18,13 +17,10 @@ import java.nio.charset.StandardCharsets;
 public class WebSocketMessageListener {
 
     private final WebSocketSessionManager sessionManager;
-    private final MessageNoticeService messageNoticeService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public WebSocketMessageListener(WebSocketSessionManager sessionManager,
-                                    MessageNoticeService messageNoticeService) {
+    public WebSocketMessageListener(WebSocketSessionManager sessionManager) {
         this.sessionManager = sessionManager;
-        this.messageNoticeService = messageNoticeService;
     }
 
     @RabbitListener(queues = "#{webSocketBroadcastQueue.name}")
@@ -43,9 +39,6 @@ public class WebSocketMessageListener {
             WebSocketMessageDTO<JsonNode> dto = normalizeMessage(jsonNode);
             String payload = objectMapper.writeValueAsString(dto);
             int count = sessionManager.sendToUser(receiverId, payload);
-            if (count > 0 && WebSocketMessageDTO.TYPE_SYSTEM.equals(dto.getType())) {
-                messageNoticeService.saveSystemNoticeAsync(receiverId, dto.getData());
-            }
             log.info("WebSocket消息已发送 receiverId={}, type={}, count={}", receiverId, dto.getType(), count);
         } catch (RuntimeException | JsonProcessingException ex) {
             log.warn("WebSocket MQ消息处理失败 body={}", body, ex);

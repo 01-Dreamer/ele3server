@@ -30,7 +30,7 @@ public class MessageNoticeService {
         }
     }
 
-    private void saveSystemNotice(String receiverIdValue, JsonNode data) {
+    public void saveSystemNotice(String receiverIdValue, JsonNode data) {
         Long receiverId = parseUserId(receiverIdValue);
         String title = extractTitle(data);
         String content = extractContent(data);
