@@ -16,6 +16,11 @@ public final class MqConstants {
     public static final String RISK_TEXT_RECORD_QUEUE = "ele.risk.text.record.queue";
     public static final String RISK_TEXT_RECORD_ROUTING_KEY = "ele.risk.text.record";
 
+    // 文件服务队列
+    public static final String FILE_EXCHANGE = "ele.file.exchange";
+    public static final String FILE_IMAGE_DELETE_QUEUE = "ele.file.image.delete.queue";
+    public static final String FILE_IMAGE_DELETE_ROUTING_KEY = "ele.file.image.delete";
+
     // 店铺ES索引队列
     public static final String SHOP_EXCHANGE = "ele.shop.exchange";
     public static final String SHOP_ES_INDEX_DELAY_QUEUE = "ele.shop.es.index.delay.queue";

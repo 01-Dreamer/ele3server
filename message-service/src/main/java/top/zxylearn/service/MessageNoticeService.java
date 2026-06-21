@@ -138,6 +138,17 @@ public class MessageNoticeService {
         return buildResult(messageNoticeMapper.selectList(wrapper), pageSize);
     }
 
+    public void markAllAsRead(String userId) {
+        Long userLong = parseUserId(userId);
+        LambdaUpdateWrapper<MessageNotice> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(MessageNotice::getUserId, userLong)
+                .eq(MessageNotice::getIsRead, 0)
+                .set(MessageNotice::getIsRead, 1)
+                .set(MessageNotice::getUpdateTime, LocalDateTime.now());
+        messageNoticeMapper.update(null, wrapper);
+        log.info("全部通知已标记为已读 userId={}", userId);
+    }
+
     // ======================== 管理员删除 ========================
 
     public void deleteNoticeByAdmin(String noticeId) {

@@ -8,7 +8,6 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 import top.zxylearn.constant.MqConstants;
-import top.zxylearn.dto.message.WebSocketMessageDTO;
 import top.zxylearn.service.MessageChatService;
 import top.zxylearn.service.MessageNoticeService;
 
@@ -17,6 +16,11 @@ import java.nio.charset.StandardCharsets;
 @Slf4j
 @Component
 public class MessagePersistListener {
+
+    private static final String TYPE_CHAT = "CHAT";
+    private static final String TYPE_NOTICE = "NOTICE";
+    private static final String TYPE_PING = "PING";
+    private static final String TYPE_PONG = "PONG";
 
     private final MessageChatService messageChatService;
     private final MessageNoticeService messageNoticeService;
@@ -31,48 +35,44 @@ public class MessagePersistListener {
     @RabbitListener(queues = MqConstants.MESSAGE_PERSIST_QUEUE)
     public void onMessage(Message message) {
         String body = new String(message.getBody(), StandardCharsets.UTF_8);
-        WebSocketMessageDTO<JsonNode> dto = null;
+        String type = null;
+        String senderId = null;
+        String receiverId = null;
         try {
-            dto = parseMessage(body);
-            if (dto == null) {
-                throw new IllegalArgumentException("持久化消息不能为空");
-            }
-            if (WebSocketMessageDTO.TYPE_CHAT.equals(dto.getType())) {
-                persistChat(dto);
+            JsonNode root = objectMapper.readTree(body);
+            type = root.path("type").asText(null);
+            senderId = root.path("senderId").asText(null);
+            receiverId = root.path("receiverId").asText(null);
+            JsonNode data = root.get("data");
+
+            if (TYPE_CHAT.equals(type)) {
+                String content = extractContent(data);
+                if (!hasText(content)) {
+                    throw new IllegalArgumentException("聊天持久化消息内容不能为空");
+                }
+                if (!hasText(senderId) || !hasText(receiverId)) {
+                    throw new IllegalArgumentException("聊天消息 senderId/receiverId 不能为空");
+                }
+                messageChatService.saveChatMessage(senderId, receiverId, content);
                 return;
             }
-            if (WebSocketMessageDTO.TYPE_NOTICE.equals(dto.getType())) {
-                messageNoticeService.saveSystemNotice(dto.getReceiverId(), dto.getData());
+            if (TYPE_NOTICE.equals(type)) {
+                if (!hasText(receiverId)) {
+                    throw new IllegalArgumentException("系统消息 receiverId 不能为空");
+                }
+                messageNoticeService.saveSystemNotice(receiverId, data);
                 return;
             }
-            if (WebSocketMessageDTO.TYPE_PING.equals(dto.getType()) || WebSocketMessageDTO.TYPE_PONG.equals(dto.getType())) {
-                log.debug("心跳消息不需要持久化 type={}", dto.getType());
+            if (TYPE_PING.equals(type) || TYPE_PONG.equals(type)) {
+                log.debug("心跳消息不需要持久化 type={}", type);
                 return;
             }
-            throw new IllegalArgumentException("不支持持久化的消息类型：" + dto.getType());
+            throw new IllegalArgumentException("不支持持久化的消息类型：" + type);
         } catch (RuntimeException | JsonProcessingException ex) {
             log.warn("消息持久化失败 type={}, senderId={}, receiverId={}, body={}",
-                    dto == null ? null : dto.getType(),
-                    dto == null ? null : dto.getSenderId(),
-                    dto == null ? null : dto.getReceiverId(), body, ex);
+                    type, senderId, receiverId, body, ex);
             throw new IllegalArgumentException("消息持久化失败", ex);
         }
-    }
-
-    private WebSocketMessageDTO<JsonNode> parseMessage(String body) throws JsonProcessingException {
-        JsonNode jsonNode = objectMapper.readTree(body);
-        return objectMapper.treeToValue(
-                jsonNode,
-                objectMapper.getTypeFactory().constructParametricType(WebSocketMessageDTO.class, JsonNode.class)
-        );
-    }
-
-    private void persistChat(WebSocketMessageDTO<JsonNode> message) {
-        String content = extractContent(message.getData());
-        if (!hasText(content)) {
-            throw new IllegalArgumentException("聊天持久化消息内容不能为空");
-        }
-        messageChatService.saveChatMessage(message.getSenderId(), message.getReceiverId(), content);
     }
 
     private String extractContent(JsonNode data) {
@@ -86,11 +86,7 @@ public class MessagePersistListener {
         if (contentNode != null && contentNode.isTextual()) {
             return contentNode.asText();
         }
-        try {
-            return objectMapper.writeValueAsString(data);
-        } catch (JsonProcessingException ex) {
-            return null;
-        }
+        return data.isTextual() ? data.asText() : null;
     }
 
     private boolean hasText(String value) {

@@ -21,6 +21,8 @@ public class OrderCreateRequest {
     private BigDecimal receiverLongitude;
     @Schema(description = "收货地址纬度")
     private BigDecimal receiverLatitude;
+    @Schema(description = "防重token，先调用 /create-order-token 获取")
+    private String token;
     @Schema(description = "用户备注")
     private String remark;
     @Schema(description = "订单商品列表")

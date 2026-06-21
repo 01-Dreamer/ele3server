@@ -25,7 +25,7 @@ public class AdminController {
     @DeleteMapping("/delete")
     public Result<?> delete(@Parameter(description = "文件访问地址") @RequestParam("url") String url) {
         try {
-            fileService.adminDelete(url);
+            fileService.deleteImageByUrl(url);
             return Result.success();
         } catch (IllegalArgumentException ex) {
             return Result.fail(400, ex.getMessage());

@@ -217,7 +217,9 @@ public class ShopService {
             shop.setName(checkRequiredText(request.getName(), 100, "店铺名称"));
         }
         if (hasText(request.getAvatar())) {
-            shop.setAvatar(checkOptionalText(request.getAvatar(), 500, "店铺头像URL"));
+            String avatar = checkOptionalText(request.getAvatar(), 500, "店铺头像URL");
+            publishOldImageDeleteAfterCommit(shop.getAvatar(), avatar);
+            shop.setAvatar(avatar);
         }
         if (hasText(request.getDescription())) {
             shop.setDescription(checkRequiredText(request.getDescription(), 500, "店铺描述"));
@@ -260,6 +262,7 @@ public class ShopService {
         item.setImage(checkOptionalText(request.getImage(), 500, "商品图片URL"));
         item.setDescription(checkRequiredText(request.getDescription(), 500, "商品描述"));
         item.setPrice(checkMoney(request.getPrice(), "商品价格"));
+        item.setSort(0L); // 临时值，insert 后替换为雪花 ID
         item.setStatus(STATUS_NORMAL);
         shopItemMapper.insert(item);
         item.setSort(item.getId());
@@ -294,7 +297,9 @@ public class ShopService {
             changed = true;
         }
         if (request.getImage() != null) {
-            item.setImage(request.getImage().isBlank() ? null : checkOptionalText(request.getImage(), 500, "商品图片URL"));
+            String image = request.getImage().isBlank() ? null : checkOptionalText(request.getImage(), 500, "商品图片URL");
+            publishOldImageDeleteAfterCommit(item.getImage(), image);
+            item.setImage(image);
             changed = true;
         }
         if (hasText(request.getDescription())) {
@@ -698,39 +703,47 @@ public class ShopService {
                 : buildSearchRadiusPlan(longitude);
 
         for (Double radiusKm : radiusPlan) {
-            SearchHits<ShopDocument> hits = searchShopDocuments(longitude, latitude, keyword, sort, radiusKm, searchAfter, fetchSize);
-            List<SearchHit<ShopDocument>> hitList = hits.getSearchHits();
-            if (hitList.isEmpty()) {
-                continue;
-            }
-            // 记录每条命中对应的 sortValues，供 shops 通过后使用
-            Map<Long, List<Object>> sortValuesMap = new LinkedHashMap<>();
-            List<Long> ids = new ArrayList<>();
-            for (SearchHit<ShopDocument> hit : hitList) {
-                Long id = hit.getContent().getId();
-                if (id != null && seenIds.add(id)) {
-                    ids.add(id);
-                    sortValuesMap.put(id, hit.getSortValues());
+            while (records.size() < pageSize + 1) {
+                SearchHits<ShopDocument> hits = searchShopDocuments(longitude, latitude, keyword, sort, radiusKm, searchAfter, fetchSize);
+                List<SearchHit<ShopDocument>> hitList = hits.getSearchHits();
+                if (hitList.isEmpty()) {
+                    break;
                 }
-            }
-            if (ids.isEmpty()) {
-                continue;
-            }
-            for (Shop shop : selectShopsByIdsInOrder(ids)) {
-                if (isShopVisibleNow(shop)) {
-                    records.add(toShopVO(shop));
-                    lastRecordSortValues = sortValuesMap.get(shop.getId());
-                    if (records.size() == pageSize + 1) {
-                        hasMore = true;
-                        break;
+                // 记录每条命中对应的 sortValues，供通过后使用
+                Map<Long, List<Object>> sortValuesMap = new LinkedHashMap<>();
+                List<Long> ids = new ArrayList<>();
+                for (SearchHit<ShopDocument> hit : hitList) {
+                    Long id = hit.getContent().getId();
+                    if (id != null && seenIds.add(id)) {
+                        ids.add(id);
+                        sortValuesMap.put(id, hit.getSortValues());
                     }
+                }
+                if (ids.isEmpty()) {
+                    searchAfter = hitList.get(hitList.size() - 1).getSortValues().toArray();
+                    if (hitList.size() < fetchSize) break;
+                    continue;
+                }
+                for (Shop shop : selectShopsByIdsInOrder(ids)) {
+                    if (isShopVisibleNow(shop)) {
+                        records.add(toShopVO(shop));
+                        lastRecordSortValues = sortValuesMap.get(shop.getId());
+                        if (records.size() == pageSize + 1) {
+                            hasMore = true;
+                            break;
+                        }
+                    }
+                }
+                if (records.size() >= pageSize + 1) {
+                    break;
+                }
+                if (hitList.size() == fetchSize) {
+                    searchAfter = hitList.get(hitList.size() - 1).getSortValues().toArray();
+                } else {
+                    break;
                 }
             }
             if (records.size() >= pageSize + 1) {
-                break;
-            }
-            if (hitList.size() == fetchSize) {
-                hasMore = true;
                 break;
             }
         }
@@ -1647,5 +1660,31 @@ public class ShopService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private void publishOldImageDeleteAfterCommit(String oldUrl, String newUrl) {
+        if (!hasText(oldUrl)) {
+            return;
+        }
+        String normalizedOldUrl = oldUrl.trim();
+        String normalizedNewUrl = newUrl == null ? null : newUrl.trim();
+        if (normalizedOldUrl.equals(normalizedNewUrl)) {
+            return;
+        }
+        Runnable publisher = () -> rabbitTemplate.convertAndSend(
+                MqConstants.FILE_EXCHANGE,
+                MqConstants.FILE_IMAGE_DELETE_ROUTING_KEY,
+                normalizedOldUrl
+        );
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publisher.run();
+                }
+            });
+            return;
+        }
+        publisher.run();
     }
 }

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import top.zxylearn.client.PaymentClient;
@@ -36,6 +37,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class OrderService {
@@ -49,11 +51,15 @@ public class OrderService {
     private static final int STATUS_EXPIRED = 6;
     private static final int STATUS_CANCELLED = 7;
 
+    private static final String CREATE_TOKEN_KEY_PREFIX = "order:create-token:";
+    private static final int CREATE_TOKEN_TTL_SECONDS = 1800;
+
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final ShopClient shopClient;
     private final PaymentClient paymentClient;
     private final RabbitTemplate rabbitTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
     private final int expireMinutes;
     private final int mqGraceMinutes;
 
@@ -62,6 +68,7 @@ public class OrderService {
                         ShopClient shopClient,
                         PaymentClient paymentClient,
                         RabbitTemplate rabbitTemplate,
+                        StringRedisTemplate stringRedisTemplate,
                         @Value("${order.expire.minutes}") int expireMinutes,
                         @Value("${order.expire.mq-grace-minutes}") int mqGraceMinutes) {
         this.orderMapper = orderMapper;
@@ -69,8 +76,19 @@ public class OrderService {
         this.shopClient = shopClient;
         this.paymentClient = paymentClient;
         this.rabbitTemplate = rabbitTemplate;
+        this.stringRedisTemplate = stringRedisTemplate;
         this.expireMinutes = expireMinutes;
         this.mqGraceMinutes = mqGraceMinutes;
+    }
+
+    public String createOrderToken(String userId) {
+        if (!hasText(userId)) {
+            throw new IllegalArgumentException("用户ID不能为空");
+        }
+        String token = UUID.randomUUID().toString().replace("-", "");
+        stringRedisTemplate.opsForValue()
+                .set(buildCreateTokenKey(userId.trim(), token), "1", Duration.ofSeconds(CREATE_TOKEN_TTL_SECONDS));
+        return token;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -78,7 +96,14 @@ public class OrderService {
         if (request == null) {
             throw new IllegalArgumentException("订单参数不能为空");
         }
+        if (!hasText(request.getToken())) {
+            throw new IllegalArgumentException("下单token不能为空，请先调用 /create-order-token 获取");
+        }
         Long buyerId = parseLongId(userId, "用户ID");
+        String tokenKey = buildCreateTokenKey(userId, request.getToken().trim());
+        if (!Boolean.TRUE.equals(stringRedisTemplate.delete(tokenKey))) {
+            throw new IllegalArgumentException("下单token已失效，请重新获取");
+        }
         Long shopId = parseLongId(request.getShopId(), "店铺ID");
         List<OrderCreateRequest.ItemEntry> requestItems = request.getItems();
         if (requestItems == null || requestItems.isEmpty()) {
@@ -149,8 +174,16 @@ public class OrderService {
             expireOrder(String.valueOf(order.getId()));
             throw new IllegalArgumentException("订单已过期");
         }
+        call(paymentClient.closeAlipayOrderByOrderId(orderId), "支付订单关闭失败");
         call(paymentClient.deductBalance(new PaymentWalletDeductRequest(String.valueOf(order.getUserId()), order.getAmount())), "钱包扣款失败");
         updateStatus(order.getId(), STATUS_PENDING_PAYMENT, STATUS_WAIT_ACCEPT, "订单状态已变更");
+    }
+
+    @GlobalTransactional(name = "cancel-order", rollbackFor = Exception.class)
+    public void cancelOrder(String userId, String orderId) {
+        Order order = getOwnOrder(userId, orderId);
+        call(paymentClient.closeAlipayOrderByOrderId(orderId), "支付订单关闭失败");
+        updateStatus(order.getId(), STATUS_PENDING_PAYMENT, STATUS_CANCELLED, "只有待支付订单可以取消");
     }
 
     @GlobalTransactional(name = "merchant-accept-order", rollbackFor = Exception.class)
@@ -237,30 +270,82 @@ public class OrderService {
                 .eq(Order::getStatus, STATUS_PENDING_PAYMENT));
     }
 
-    public PageVO<OrderVO> listOrders(String userId, Integer status, Long page, Long size) {
+    public PageVO<OrderVO> listUserOrders(String userId, Integer status, Long page, Long size) {
         Long buyerId = parseLongId(userId, "用户ID");
-        Long currentPage = page == null ? 1L : page;
-        Long pageSize = size == null ? 10L : size;
-        if (currentPage < 1) {
-            throw new IllegalArgumentException("页码必须大于0");
-        }
-        if (pageSize < 1 || pageSize > 100) {
-            throw new IllegalArgumentException("每页数量必须在1到100之间");
-        }
-        if (status != null && (status < STATUS_PENDING_PAYMENT || status > STATUS_CANCELLED)) {
-            throw new IllegalArgumentException("订单状态不正确");
-        }
+        Integer normalizedStatus = normalizeStatus(status);
+        long currentPage = normalizePage(page);
+        long pageSize = normalizeSize(size);
 
         LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<Order>()
                 .eq(Order::getUserId, buyerId)
-                .eq(status != null, Order::getStatus, status)
+                .eq(normalizedStatus != null, Order::getStatus, normalizedStatus)
                 .orderByDesc(Order::getCreateTime)
                 .orderByDesc(Order::getId);
-        Page<Order> result = orderMapper.selectPage(new Page<>(currentPage, pageSize), wrapper);
+        return fetchOrders(wrapper, currentPage, pageSize);
+    }
+
+    public PageVO<OrderVO> listShopOwnerOrders(String userId, Integer status, Long page, Long size) {
+        Long ownerId = parseLongId(userId, "用户ID");
+        Integer normalizedStatus = normalizeStatus(status);
+        long currentPage = normalizePage(page);
+        long pageSize = normalizeSize(size);
+
+        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<Order>()
+                .eq(Order::getShopOwnerId, ownerId)
+                .eq(normalizedStatus != null, Order::getStatus, normalizedStatus)
+                .orderByDesc(Order::getCreateTime)
+                .orderByDesc(Order::getId);
+        return fetchOrders(wrapper, currentPage, pageSize);
+    }
+
+    public PageVO<OrderVO> listRiderOrders(String userId, Integer status, Long page, Long size) {
+        Long riderId = parseLongId(userId, "用户ID");
+        Integer normalizedStatus = normalizeStatus(status);
+        long currentPage = normalizePage(page);
+        long pageSize = normalizeSize(size);
+
+        LambdaQueryWrapper<Order> wrapper = new LambdaQueryWrapper<Order>()
+                .and(w -> w.eq(Order::getRiderId, riderId)
+                        .or().eq(Order::getStatus, STATUS_WAIT_DELIVERY).isNull(Order::getRiderId))
+                .eq(normalizedStatus != null, Order::getStatus, normalizedStatus)
+                .orderByDesc(Order::getCreateTime)
+                .orderByDesc(Order::getId);
+        return fetchOrders(wrapper, currentPage, pageSize);
+    }
+
+    private PageVO<OrderVO> fetchOrders(LambdaQueryWrapper<Order> wrapper, long page, long size) {
+        Page<Order> result = orderMapper.selectPage(new Page<>(page, size), wrapper);
         List<OrderVO> records = result.getRecords().stream()
                 .map(order -> toOrderVO(order, selectOrderItems(order.getId())))
                 .toList();
         return new PageVO<>(records, result.getTotal(), result.getCurrent(), result.getSize(), result.getPages());
+    }
+
+    private long normalizePage(Long page) {
+        if (page == null) return 1L;
+        if (page < 1) throw new IllegalArgumentException("页码必须大于0");
+        return page;
+    }
+
+    private long normalizeSize(Long size) {
+        if (size == null) return 10L;
+        if (size < 1 || size > 100) throw new IllegalArgumentException("每页数量必须在1到100之间");
+        return size;
+    }
+
+    private String buildCreateTokenKey(String userId, String token) {
+        return CREATE_TOKEN_KEY_PREFIX + userId + ":" + token;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private Integer normalizeStatus(Integer status) {
+        if (status != null && (status < STATUS_PENDING_PAYMENT || status > STATUS_CANCELLED)) {
+            throw new IllegalArgumentException("订单状态不正确");
+        }
+        return status;
     }
 
     private void sendOrderExpireMessage(Long orderId) {

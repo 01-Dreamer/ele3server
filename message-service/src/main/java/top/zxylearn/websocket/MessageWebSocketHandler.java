@@ -80,8 +80,11 @@ public class MessageWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         log.info("收到WebSocket CHAT消息 senderId={}, receiverId={}", dto.getSenderId(), dto.getReceiverId());
+        WebSocketMessageDTO<String> mqDto = WebSocketMessageDTO.of(
+                WebSocketMessageDTO.TYPE_CHAT, dto.getSenderId(), dto.getReceiverId(), content);
+        mqDto.setTimestamp(dto.getTimestamp());
         try {
-            rabbitTemplate.convertAndSend(MqConstants.MESSAGE_EXCHANGE, MqConstants.MESSAGE_WS_ROUTING_KEY, dto);
+            rabbitTemplate.convertAndSend(MqConstants.MESSAGE_EXCHANGE, MqConstants.MESSAGE_WS_ROUTING_KEY, mqDto);
         } catch (RuntimeException ex) {
             log.warn("WebSocket CHAT消息投递MQ失败 senderId={}, receiverId={}", dto.getSenderId(), dto.getReceiverId(), ex);
         }
@@ -139,11 +142,7 @@ public class MessageWebSocketHandler extends TextWebSocketHandler {
         if (contentNode != null && contentNode.isTextual()) {
             return contentNode.asText();
         }
-        try {
-            return objectMapper.writeValueAsString(data);
-        } catch (JsonProcessingException ex) {
-            return null;
-        }
+        return data.asText();
     }
 
     private String getUserId(WebSocketSession session) {

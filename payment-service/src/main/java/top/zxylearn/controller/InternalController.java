@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.zxylearn.dto.payment.PaymentCloseRequest;
 import top.zxylearn.dto.payment.PaymentCreateRequest;
@@ -96,6 +97,19 @@ public class InternalController {
         }
     }
 
+
+    @Operation(summary = "按订单关闭支付宝支付（供order-service取消订单前调用）")
+    @PostMapping("/close-alipay-order-by-order")
+    public Result<?> closeAlipayOrderByOrderId(@RequestParam("orderId") String orderId) {
+        try {
+            paymentService.closeAlipayOrderByOrderId(orderId);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "支付订单关闭失败" : ex.getMessage());
+        }
+    }
 
     @Operation(summary = "按订单退款支付宝支付")
     @PostMapping("/refund-alipay-order-by-order")

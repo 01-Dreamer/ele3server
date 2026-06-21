@@ -67,7 +67,11 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
             return true;
         }
-        return !request.getRequestURI().startsWith("/api/");
+        String path = request.getRequestURI();
+        if (path.startsWith("/api/message/ws")) {
+            return true;
+        }
+        return !path.startsWith("/api/");
     }
 
     @Override

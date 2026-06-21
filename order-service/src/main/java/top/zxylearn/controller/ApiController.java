@@ -20,6 +20,8 @@ import top.zxylearn.service.OrderService;
 import top.zxylearn.vo.OrderVO;
 import top.zxylearn.vo.PageVO;
 
+import java.util.Map;
+
 @Tag(name = "用户接口")
 @RestController
 @RequestMapping("/api/order")
@@ -33,15 +35,45 @@ public class ApiController {
         this.orderService = orderService;
     }
 
-    @Operation(summary = "获取自己的订单列表")
-    @GetMapping("/list-order")
-    public Result<PageVO<OrderVO>> listOrders(@RequestHeader("X-User-Id") String userId,
-                                              @RequestParam(value = "status", required = false) Integer status,
-                                              @RequestParam(value = "page", required = false) Long page,
-                                              @RequestParam(value = "size", required = false) Long size) {
-        try { return Result.success(orderService.listOrders(userId, status, page, size)); }
+    @Operation(summary = "获取自己作为用户的订单列表")
+    @GetMapping("/list-order-for-user")
+    public Result<PageVO<OrderVO>> listUserOrders(@RequestHeader("X-User-Id") String userId,
+                                                   @RequestParam(value = "status", required = false) Integer status,
+                                                   @RequestParam(value = "page", required = false) Long page,
+                                                   @RequestParam(value = "size", required = false) Long size) {
+        try { return Result.success(orderService.listUserOrders(userId, status, page, size)); }
         catch (IllegalArgumentException ex) { return Result.fail(400, ex.getMessage()); }
         catch (RuntimeException ex) { log.error("订单列表获取失败", ex); return Result.fail(500, "订单列表获取失败"); }
+    }
+
+    @Operation(summary = "获取自己作为商家的订单列表")
+    @GetMapping("/list-order-for-shopowner")
+    public Result<PageVO<OrderVO>> listShopOwnerOrders(@RequestHeader("X-User-Id") String userId,
+                                                        @RequestParam(value = "status", required = false) Integer status,
+                                                        @RequestParam(value = "page", required = false) Long page,
+                                                        @RequestParam(value = "size", required = false) Long size) {
+        try { return Result.success(orderService.listShopOwnerOrders(userId, status, page, size)); }
+        catch (IllegalArgumentException ex) { return Result.fail(400, ex.getMessage()); }
+        catch (RuntimeException ex) { log.error("订单列表获取失败", ex); return Result.fail(500, "订单列表获取失败"); }
+    }
+
+    @Operation(summary = "获取骑手订单列表（含自己已接单和所有待配送的订单）")
+    @GetMapping("/list-order-for-rider")
+    public Result<PageVO<OrderVO>> listRiderOrders(@RequestHeader("X-User-Id") String userId,
+                                                    @RequestParam(value = "status", required = false) Integer status,
+                                                    @RequestParam(value = "page", required = false) Long page,
+                                                    @RequestParam(value = "size", required = false) Long size) {
+        try { return Result.success(orderService.listRiderOrders(userId, status, page, size)); }
+        catch (IllegalArgumentException ex) { return Result.fail(400, ex.getMessage()); }
+        catch (RuntimeException ex) { log.error("订单列表获取失败", ex); return Result.fail(500, "订单列表获取失败"); }
+    }
+
+    @Operation(summary = "获取下单token（防重复下单）")
+    @PostMapping("/create-order-token")
+    public Result<Map<String, String>> createOrderToken(@RequestHeader("X-User-Id") String userId) {
+        try { return Result.success(Map.of("token", orderService.createOrderToken(userId))); }
+        catch (IllegalArgumentException ex) { return Result.fail(400, ex.getMessage()); }
+        catch (RuntimeException ex) { log.error("下单token创建失败", ex); return Result.fail(500, "下单token创建失败"); }
     }
 
     @Operation(summary = "创建订单")
@@ -98,6 +130,14 @@ public class ApiController {
         try { orderService.riderArrive(userId, orderId); return Result.success(); }
         catch (IllegalArgumentException ex) { return Result.fail(400, ex.getMessage()); }
         catch (RuntimeException ex) { log.error("骑手送达失败", ex); return Result.fail(500, "骑手送达失败"); }
+    }
+
+    @Operation(summary = "用户取消订单（仅待支付状态）")
+    @PostMapping("/cancel/{orderId}")
+    public Result<?> cancelOrder(@RequestHeader("X-User-Id") String userId, @PathVariable String orderId) {
+        try { orderService.cancelOrder(userId, orderId); return Result.success(); }
+        catch (IllegalArgumentException ex) { return Result.fail(400, ex.getMessage()); }
+        catch (RuntimeException ex) { log.error("订单取消失败", ex); return Result.fail(500, "订单取消失败"); }
     }
 
     @Operation(summary = "用户评价订单")

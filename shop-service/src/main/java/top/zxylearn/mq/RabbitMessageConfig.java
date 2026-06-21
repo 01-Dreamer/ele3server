@@ -24,6 +24,7 @@ public class RabbitMessageConfig {
     @Bean
     public Declarables shopRabbitDeclarables() {
         TopicExchange shopExchange = new TopicExchange(MqConstants.SHOP_EXCHANGE, true, false);
+        TopicExchange fileExchange = new TopicExchange(MqConstants.FILE_EXCHANGE, true, false);
         DirectExchange deadLetterExchange = new DirectExchange(MqConstants.DLX_EXCHANGE, true, false);
         Queue shopEsIndexDelayQueue = QueueBuilder.durable(MqConstants.SHOP_ES_INDEX_DELAY_QUEUE)
                 .deadLetterExchange(MqConstants.SHOP_EXCHANGE)
@@ -43,7 +44,7 @@ public class RabbitMessageConfig {
         Binding deadLetterBinding = BindingBuilder.bind(deadLetterQueue)
                 .to(deadLetterExchange)
                 .with(MqConstants.DLX_ROUTING_KEY);
-        return new Declarables(shopExchange, deadLetterExchange, shopEsIndexDelayQueue, shopEsIndexQueue,
+        return new Declarables(shopExchange, fileExchange, deadLetterExchange, shopEsIndexDelayQueue, shopEsIndexQueue,
                 deadLetterQueue, shopEsIndexDelayBinding, shopEsIndexBinding, deadLetterBinding);
     }
 }

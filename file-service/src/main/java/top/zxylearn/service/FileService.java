@@ -99,7 +99,7 @@ public class FileService {
         }
     }
 
-    public void adminDelete(String fileUrl) {
+    public void deleteImageByUrl(String fileUrl) {
         String normalizedObjectName = normalizeObjectName(fileUrl);
         if (!hasText(normalizedObjectName)) {
             throw new IllegalArgumentException("文件访问地址不能为空");

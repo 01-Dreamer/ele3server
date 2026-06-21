@@ -10,7 +10,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("order_product")
+@TableName("order_item")
 public class OrderItem {
 
     @TableId(value = "id", type = IdType.ASSIGN_ID)
@@ -18,7 +18,6 @@ public class OrderItem {
 
     private Long orderId;
 
-    @TableField("product_name")
     private String name;
 
     private BigDecimal price;

@@ -4,12 +4,18 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import top.zxylearn.constant.MqConstants;
 import top.zxylearn.dto.UserLocationCreateRequest;
 import top.zxylearn.dto.UserUpdateRequest;
 import top.zxylearn.dto.user.UserCreateRequest;
@@ -17,6 +23,7 @@ import top.zxylearn.entity.User;
 import top.zxylearn.entity.UserLocation;
 import top.zxylearn.mapper.UserLocationMapper;
 import top.zxylearn.mapper.UserMapper;
+import top.zxylearn.vo.PageVO;
 import top.zxylearn.vo.UserBriefVO;
 import top.zxylearn.vo.UserLocationVO;
 import top.zxylearn.vo.UserVO;
@@ -24,6 +31,7 @@ import top.zxylearn.vo.UserVO;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -46,6 +54,7 @@ public class UserService {
     private final UserMapper userMapper;
     private final UserLocationMapper userLocationMapper;
     private final StringRedisTemplate stringRedisTemplate;
+    private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
     private final Duration cacheTtl;
     private final Duration nullCacheTtl;
@@ -56,6 +65,7 @@ public class UserService {
     public UserService(UserMapper userMapper,
                        UserLocationMapper userLocationMapper,
                        StringRedisTemplate stringRedisTemplate,
+                       RabbitTemplate rabbitTemplate,
                        @Value("${user.cache.ttl}") Duration cacheTtl,
                        @Value("${user.cache.null-ttl}") Duration nullCacheTtl,
                        @Value("${user.cache.lock-ttl}") Duration lockTtl,
@@ -64,6 +74,7 @@ public class UserService {
         this.userMapper = userMapper;
         this.userLocationMapper = userLocationMapper;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.rabbitTemplate = rabbitTemplate;
         this.cacheTtl = cacheTtl;
         this.nullCacheTtl = nullCacheTtl;
         this.lockTtl = lockTtl;
@@ -117,6 +128,7 @@ public class UserService {
         if (hasText(request.getAvatar())) {
             String avatar = request.getAvatar().trim();
             checkLength(avatar, 500, "头像URL");
+            publishOldImageDeleteAfterCommit(user.getAvatar(), avatar);
             user.setAvatar(avatar);
             changed = true;
         }
@@ -148,6 +160,30 @@ public class UserService {
         return toLocationVO(location);
     }
 
+    public UserLocationVO getLocation(String userId, String locationId) {
+        Long ownerId = parseLongId(userId, "用户ID");
+        if (!hasText(locationId)) {
+            List<UserLocation> locations = userLocationMapper.selectList(
+                    new LambdaQueryWrapper<UserLocation>()
+                            .eq(UserLocation::getUserId, ownerId)
+                            .orderByDesc(UserLocation::getCreateTime)
+                            .last("LIMIT 1"));
+            if (locations.isEmpty()) {
+                throw new IllegalArgumentException("暂无收货地址");
+            }
+            return toLocationVO(locations.get(0));
+        }
+        Long id = parseLongId(locationId, "收货地址ID");
+        UserLocation location = userLocationMapper.selectById(id);
+        if (location == null) {
+            throw new IllegalArgumentException("收货地址不存在");
+        }
+        if (!ownerId.equals(location.getUserId())) {
+            throw new IllegalArgumentException("只能查看自己的收货地址");
+        }
+        return toLocationVO(location);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void deleteLocation(String userId, String locationId) {
         Long ownerId = parseLongId(userId, "用户ID");
@@ -160,6 +196,22 @@ public class UserService {
             throw new IllegalArgumentException("只能删除自己的收货地址");
         }
         userLocationMapper.deleteById(id);
+    }
+
+    public PageVO<UserLocationVO> listLocations(String userId, Integer page, Integer size) {
+        Long ownerId = parseLongId(userId, "用户ID");
+        int pageNum = page != null && page > 0 ? page : 1;
+        int pageSize = size != null && size > 0 ? Math.min(size, 100) : 20;
+
+        Page<UserLocation> mpPage = new Page<>(pageNum, pageSize);
+        Page<UserLocation> result = userLocationMapper.selectPage(mpPage,
+                new LambdaQueryWrapper<UserLocation>()
+                        .eq(UserLocation::getUserId, ownerId)
+                        .orderByDesc(UserLocation::getCreateTime));
+
+        List<UserLocationVO> items = result.getRecords().stream()
+                .map(this::toLocationVO).toList();
+        return new PageVO<>(items, result.getTotal(), pageNum, pageSize);
     }
 
     private UserVO getUserWithCache(String userId) {
@@ -369,5 +421,31 @@ public class UserService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private void publishOldImageDeleteAfterCommit(String oldUrl, String newUrl) {
+        if (!hasText(oldUrl)) {
+            return;
+        }
+        String normalizedOldUrl = oldUrl.trim();
+        String normalizedNewUrl = newUrl == null ? null : newUrl.trim();
+        if (normalizedOldUrl.equals(normalizedNewUrl)) {
+            return;
+        }
+        Runnable publisher = () -> rabbitTemplate.convertAndSend(
+                MqConstants.FILE_EXCHANGE,
+                MqConstants.FILE_IMAGE_DELETE_ROUTING_KEY,
+                normalizedOldUrl
+        );
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publisher.run();
+                }
+            });
+            return;
+        }
+        publisher.run();
     }
 }

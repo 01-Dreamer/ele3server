@@ -234,6 +234,28 @@ public class PaymentService {
 
 
     @Transactional(rollbackFor = Exception.class)
+    public void closeAlipayOrderByOrderId(String orderId) {
+        Long businessId = parseLongId(orderId, "订单ID");
+        Payment payment = paymentMapper.selectOne(new LambdaQueryWrapper<Payment>()
+                .eq(Payment::getBusinessType, BUSINESS_TYPE_ORDER)
+                .eq(Payment::getBusinessId, businessId)
+                .eq(Payment::getChannel, CHANNEL_ALIPAY)
+                .eq(Payment::getStatus, STATUS_PENDING)
+                .last("LIMIT 1"));
+        if (payment == null) {
+            return;
+        }
+        closeAlipayTrade(payment);
+        int updated = paymentMapper.update(null, new LambdaUpdateWrapper<Payment>()
+                .set(Payment::getStatus, STATUS_CANCELLED)
+                .eq(Payment::getId, payment.getId())
+                .eq(Payment::getStatus, STATUS_PENDING));
+        if (updated == 0) {
+            throw new IllegalArgumentException("支付订单状态已变更，关闭失败");
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     public void refundAlipayOrderByOrderId(PaymentOrderRefundRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("订单ID不能为空");
@@ -464,6 +486,9 @@ public class PaymentService {
             request.setBizContent(toJson(bizContent));
             AlipayTradeCloseResponse response = alipayClient.execute(request);
             if (response.isSuccess()) {
+                return;
+            }
+            if ("ACQ.TRADE_NOT_EXIST".equals(response.getSubCode())) {
                 return;
             }
             String message = hasText(response.getSubMsg()) ? response.getSubMsg() : response.getMsg();

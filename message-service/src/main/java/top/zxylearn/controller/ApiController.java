@@ -117,6 +117,20 @@ public class ApiController {
         }
     }
 
+    @Operation(summary = "全部通知标记为已读")
+    @PutMapping("/read-all-notice")
+    public Result<?> readAllNotice(@RequestHeader("X-User-Id") String userId) {
+        try {
+            messageNoticeService.markAllAsRead(userId);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("全部通知标记已读失败 userId={}", userId, ex);
+            return Result.fail(500, "全部通知标记已读失败");
+        }
+    }
+
     @Operation(summary = "获取自己的通知列表（游标分页）")
     @GetMapping("/list-notice")
     public Result<CursorPageVO<MessageNoticeVO>> listNotices(
