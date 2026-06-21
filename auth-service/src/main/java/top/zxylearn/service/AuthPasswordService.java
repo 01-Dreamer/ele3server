@@ -3,7 +3,6 @@ package top.zxylearn.service;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import top.zxylearn.dto.ChangePasswordRequest;
-import top.zxylearn.dto.EmailCaptchaSendRequest;
 import top.zxylearn.dto.ForgotPasswordResetRequest;
 import top.zxylearn.entity.AuthAccount;
 import top.zxylearn.mapper.AuthAccountMapper;
@@ -23,11 +22,6 @@ public class AuthPasswordService {
         this.emailCaptchaService = emailCaptchaService;
     }
 
-    public long sendChangePasswordEmailCaptcha(String userId, EmailCaptchaSendRequest request) {
-        AuthAccount account = getAvailableAccount(parseUserId(userId));
-        return emailCaptchaService.sendChangePasswordEmailCaptcha(account.getEmail(), request);
-    }
-
     public void changePassword(String userId, ChangePasswordRequest request) {
         Long parsedUserId = parseUserId(userId);
         if (request == null) {
@@ -36,13 +30,8 @@ public class AuthPasswordService {
         PasswordValidator.checkPassword(request.getNewPassword());
 
         AuthAccount account = getAvailableAccount(parsedUserId);
-        boolean oldPasswordPassed = verifyOldPassword(request.getOldPassword(), account);
-        boolean emailCaptchaPassed = emailCaptchaService.verifyChangePasswordEmailCaptcha(
-                account.getEmail(),
-                request.getEmailCaptcha()
-        );
-        if (!oldPasswordPassed && !emailCaptchaPassed) {
-            throw new IllegalArgumentException("旧密码或邮箱验证码错误");
+        if (!verifyOldPassword(request.getOldPassword(), account)) {
+            throw new IllegalArgumentException("旧密码错误");
         }
         if (passwordEncoder.matches(request.getNewPassword(), account.getPasswordHash())) {
             throw new IllegalArgumentException("新密码不能和旧密码相同");

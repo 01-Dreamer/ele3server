@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -29,10 +30,11 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class AuthTokenFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(AuthTokenFilter.class);
@@ -42,6 +44,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String LOGIN_TOKEN_KEY_PREFIX = "auth:login:";
     private static final String LOGIN_USER_KEY_PREFIX = "auth:user:";
+    private static final String RISK_SCORE_KEY_PREFIX = "risk:score:user:";
     private static final int NORMAL_STATUS = 0;
     private static final int BANNED_STATUS = 1;
     private static final String ADMIN_ROLE = "ADMIN";
@@ -49,14 +52,21 @@ public class AuthTokenFilter extends OncePerRequestFilter {
     private final StringRedisTemplate stringRedisTemplate;
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final long riskCaptchaThreshold;
 
-    public AuthTokenFilter(StringRedisTemplate stringRedisTemplate, RabbitTemplate rabbitTemplate) {
+    public AuthTokenFilter(StringRedisTemplate stringRedisTemplate,
+                           RabbitTemplate rabbitTemplate,
+                           @Value("${risk.score.captcha-threshold}") long riskCaptchaThreshold) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.rabbitTemplate = rabbitTemplate;
+        this.riskCaptchaThreshold = riskCaptchaThreshold;
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
         return !request.getRequestURI().startsWith("/api/");
     }
 
@@ -74,35 +84,40 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
         if (!hasText(token)) {
             if (isAdminPath(path)) {
-                writeError(response, 401, "请先登录");
+                writeError(request, response, 401, "请先登录");
                 return;
             }
-            writeError(response, 401, "请先登录");
+            writeError(request, response, 401, "请先登录");
             return;
         }
 
         LoginToken loginToken = getLoginToken(token);
         if (loginToken == null || !hasText(loginToken.userId())) {
-            writeError(response, 401, "登录状态已失效，请重新登录");
+            writeError(request, response, 401, "登录状态已失效，请重新登录");
             return;
         }
 
         LoginUser loginUser = getLoginUser(loginToken.userId());
         if (loginUser == null) {
-            writeError(response, 401, "登录状态已失效，请重新登录");
+            writeError(request, response, 401, "登录状态已失效，请重新登录");
             return;
         }
         if (loginUser.status() == BANNED_STATUS) {
-            writeError(response, 403, "账号已被封禁");
+            writeError(request, response, 403, "账号已被封禁");
             return;
         }
         if (loginUser.status() != NORMAL_STATUS) {
-            writeError(response, 403, "账号状态异常");
+            writeError(request, response, 403, "账号状态异常");
             return;
         }
         publishRiskEvent(request, loginToken.userId());
-        if (isAdminPath(path) && !ADMIN_ROLE.equalsIgnoreCase(loginUser.role())) {
-            writeError(response, 403, "无管理员权限");
+        boolean admin = ADMIN_ROLE.equalsIgnoreCase(loginUser.role());
+        if (isAdminPath(path) && !admin) {
+            writeError(request, response, 403, "无管理员权限");
+            return;
+        }
+        if (!admin && getRiskScore(loginToken.userId()) > riskCaptchaThreshold) {
+            writeError(request, response, 40103, "请提交验证码");
             return;
         }
 
@@ -137,6 +152,33 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         }
     }
 
+
+    private long getRiskScore(String userId) {
+        String key = RISK_SCORE_KEY_PREFIX + userId;
+        String value = stringRedisTemplate.opsForValue().get(key);
+        long ttlScore = getRiskScoreByTtl(key);
+        long legacyScore = getLegacyRiskScore(value);
+        return legacyScore > 0 ? legacyScore : ttlScore;
+    }
+
+    private long getRiskScoreByTtl(String key) {
+        Long ttl = stringRedisTemplate.getExpire(key, TimeUnit.SECONDS);
+        return ttl == null || ttl <= 0 ? 0L : ttl;
+    }
+
+    private long getLegacyRiskScore(String value) {
+        if (!hasText(value) || !value.trim().startsWith("{")) {
+            return 0L;
+        }
+        try {
+            JsonNode jsonNode = objectMapper.readTree(value);
+            return jsonNode.has("score") ? jsonNode.path("score").asLong(0L) : 0L;
+        } catch (JsonProcessingException ex) {
+            log.warn("用户风险上下文解析失败", ex);
+            return 0L;
+        }
+    }
+
     private LoginUser getLoginUser(String userId) {
         String value = stringRedisTemplate.opsForValue().get(LOGIN_USER_KEY_PREFIX + userId);
         if (!hasText(value)) {
@@ -168,7 +210,6 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                     event.getEventId(), event.getUserId(), event.getPath());
         } catch (RuntimeException ex) {
             log.warn("HTTP风控事件投递失败 path={}", request.getRequestURI(), ex);
-            // 风控事件投递失败不能阻塞主请求
         }
     }
 
@@ -203,12 +244,25 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         return value != null && !value.isBlank();
     }
 
-    private void writeError(HttpServletResponse response, int code, String message) throws IOException {
+    private void writeError(HttpServletRequest request, HttpServletResponse response, int code, String message) throws IOException {
+        writeCorsHeaders(request, response);
         response.setStatus(code);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType("application/json;charset=UTF-8");
 
         response.getWriter().write(objectMapper.writeValueAsString(Result.fail(code, message)));
+    }
+
+    private void writeCorsHeaders(HttpServletRequest request, HttpServletResponse response) {
+        String origin = request.getHeader("Origin");
+        response.setHeader("Access-Control-Allow-Origin", hasText(origin) ? origin : "*");
+        response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+        response.setHeader("Access-Control-Allow-Headers", "*");
+        response.setHeader("Access-Control-Max-Age", "3600");
+        response.setHeader("Vary", "Origin");
+        if (hasText(origin)) {
+            response.setHeader("Access-Control-Allow-Credentials", "true");
+        }
     }
 
     private record LoginToken(String userId) {

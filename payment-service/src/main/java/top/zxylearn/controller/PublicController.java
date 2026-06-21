@@ -35,7 +35,6 @@ public class PublicController {
                         entry -> String.join(",", entry.getValue() == null ? new String[0] : entry.getValue())
                 ));
         log.info("收到支付宝支付回调: {}", params);
-        System.out.println("收到支付宝支付回调: " + params);
         try {
             paymentService.handleAlipayNotify(params);
             return "success";

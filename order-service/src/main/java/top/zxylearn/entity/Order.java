@@ -19,6 +19,10 @@ public class Order {
 
     private Long shopId;
 
+    private Long shopOwnerId;
+
+    private Long riderId;
+
     private String shopName;
 
     private String receiverName;
@@ -38,7 +42,7 @@ public class Order {
     private BigDecimal amount;
 
     /**
-     * 订单状态：0待支付，1待接单，2待配送，3待评价，4已完成，5已过期，6已取消
+     * 订单状态：0待支付，1待接单，2待配送，3待送达，4待评价，5已完成，6已过期，7已取消
      */
     private Integer status;
 

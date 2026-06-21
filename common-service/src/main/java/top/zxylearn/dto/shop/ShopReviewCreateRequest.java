@@ -30,6 +30,6 @@ public class ShopReviewCreateRequest implements Serializable {
     @Schema(description = "评价内容，必填")
     private String content;
 
-    @Schema(description = "评价图片URL列表，必填，最多5张")
+    @Schema(description = "评价图片URL列表，可为空，最多5张")
     private List<String> images;
 }

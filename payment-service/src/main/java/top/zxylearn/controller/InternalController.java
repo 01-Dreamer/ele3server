@@ -9,6 +9,9 @@ import org.springframework.web.bind.annotation.RestController;
 import top.zxylearn.dto.payment.PaymentCloseRequest;
 import top.zxylearn.dto.payment.PaymentCreateRequest;
 import top.zxylearn.dto.payment.PaymentCreateVO;
+import top.zxylearn.dto.payment.PaymentOrderRefundRequest;
+import top.zxylearn.dto.payment.PaymentRefundRequest;
+import top.zxylearn.dto.payment.PaymentWalletAddRequest;
 import top.zxylearn.dto.payment.PaymentWalletCreateRequest;
 import top.zxylearn.dto.payment.PaymentWalletDeductRequest;
 import top.zxylearn.result.Result;
@@ -54,6 +57,20 @@ public class InternalController {
         }
     }
 
+
+    @Operation(summary = "增加用户钱包余额")
+    @PostMapping("/add-balance")
+    public Result<?> addBalance(@RequestBody PaymentWalletAddRequest request) {
+        try {
+            paymentWalletService.addBalance(request);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, "余额增加失败");
+        }
+    }
+
     @Operation(summary = "创建支付宝支付订单")
     @PostMapping("/create-alipay-order")
     public Result<PaymentCreateVO> createAlipayOrder(@RequestBody PaymentCreateRequest request) {
@@ -76,6 +93,33 @@ public class InternalController {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
             return Result.fail(500, ex.getMessage() == null ? "支付订单关闭失败" : ex.getMessage());
+        }
+    }
+
+
+    @Operation(summary = "按订单退款支付宝支付")
+    @PostMapping("/refund-alipay-order-by-order")
+    public Result<?> refundAlipayOrderByOrder(@RequestBody PaymentOrderRefundRequest request) {
+        try {
+            paymentService.refundAlipayOrderByOrderId(request);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "支付订单退款失败" : ex.getMessage());
+        }
+    }
+
+    @Operation(summary = "支付宝支付订单退款")
+    @PostMapping("/refund-alipay-order")
+    public Result<?> refundAlipayOrder(@RequestBody PaymentRefundRequest request) {
+        try {
+            paymentService.refundAlipayOrder(request);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "支付订单退款失败" : ex.getMessage());
         }
     }
 

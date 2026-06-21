@@ -26,6 +26,11 @@ public class ShopItem {
     private BigDecimal price;
 
     /**
+     * 排序值，越小越靠前，创建时默认使用雪花ID
+     */
+    private Long sort;
+
+    /**
      * 商品状态：0正常，1下架
      */
     private Integer status;

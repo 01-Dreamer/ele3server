@@ -12,11 +12,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.zxylearn.OAUTH.YnuOAuth;
 import top.zxylearn.dto.ChangePasswordRequest;
-import top.zxylearn.dto.EmailCaptchaSendRequest;
+import top.zxylearn.dto.LogoutRequest;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.AuthPasswordService;
+import top.zxylearn.service.LoginService;
+import top.zxylearn.vo.ThirdAccountVO;
 
-import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 @Tag(name = "用户接口")
@@ -26,11 +28,14 @@ public class ApiController {
 
     private final AuthPasswordService authPasswordService;
     private final YnuOAuth ynuOAuth;
+    private final LoginService loginService;
 
     public ApiController(AuthPasswordService authPasswordService,
-                         YnuOAuth ynuOAuth) {
+                         YnuOAuth ynuOAuth,
+                         LoginService loginService) {
         this.authPasswordService = authPasswordService;
         this.ynuOAuth = ynuOAuth;
+        this.loginService = loginService;
     }
 
     @Operation(summary = "获取YNU账号绑定二维码")
@@ -72,17 +77,28 @@ public class ApiController {
         }
     }
 
-    @Operation(summary = "获取修改密码邮箱验证码")
-    @PostMapping("/change-password/email-captcha")
-    public Result<Map<String, Long>> sendChangePasswordEmailCaptcha(@RequestHeader("X-User-Id") String userId,
-                                                                    @RequestBody EmailCaptchaSendRequest request) {
+    @Operation(summary = "登出")
+    @PostMapping("/logout")
+    public Result<?> logout(@RequestBody LogoutRequest request) {
         try {
-            long expireSeconds = authPasswordService.sendChangePasswordEmailCaptcha(userId, request);
-            return Result.success(Collections.singletonMap("expireSeconds", expireSeconds));
+            loginService.logout(request.getToken());
+            return Result.success();
         } catch (IllegalArgumentException ex) {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
-            return Result.fail(500, "修改密码邮箱验证码发送失败");
+            return Result.fail(500, "登出失败");
+        }
+    }
+
+    @Operation(summary = "获取第三方账号绑定列表")
+    @GetMapping("/binding")
+    public Result<List<ThirdAccountVO>> getBindings(@RequestHeader("X-User-Id") String userId) {
+        try {
+            return Result.success(loginService.getBindings(userId));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, "绑定列表获取失败");
         }
     }
 }

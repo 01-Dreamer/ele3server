@@ -9,7 +9,4 @@ public class DirectUploadPolicyRequest {
 
     @Schema(description = "原始文件名，用于识别图片后缀", example = "avatar.png")
     private String originalFilename;
-
-    @Schema(description = "图片 Content-Type", example = "image/png")
-    private String contentType;
 }

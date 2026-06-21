@@ -32,6 +32,9 @@ public class FileService {
 
     private static final String FILE_ROOT = "ele/";
     private static final Set<String> ALLOWED_IMAGE_EXTENSIONS = Set.of(".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp");
+    private static final java.util.Map<String, String> EXTENSION_TO_CONTENT_TYPE = java.util.Map.of(
+            ".jpg", "image/jpeg", ".jpeg", "image/jpeg", ".png", "image/png",
+            ".gif", "image/gif", ".webp", "image/webp", ".bmp", "image/bmp");
     private final AliyunOssProperties aliyunOssProperties;
     private final Duration directUploadExpire;
     private final DataSize directUploadMaxSize;
@@ -120,9 +123,11 @@ public class FileService {
         if (request == null) {
             throw new IllegalArgumentException("直传授权参数不能为空");
         }
-        String contentType = request.getContentType();
         String fileExtension = getFileExtension(request.getOriginalFilename());
-        validateImage(contentType, fileExtension);
+        if (!ALLOWED_IMAGE_EXTENSIONS.contains(fileExtension)) {
+            throw new IllegalArgumentException("只允许上传 jpg、jpeg、png、gif、webp、bmp 格式图片");
+        }
+        String contentType = EXTENSION_TO_CONTENT_TYPE.get(fileExtension);
 
         String objectName = buildUserRoot(userId) + UUID.randomUUID().toString().replace("-", "") + fileExtension;
         Instant expiration = Instant.now().plus(directUploadExpire);

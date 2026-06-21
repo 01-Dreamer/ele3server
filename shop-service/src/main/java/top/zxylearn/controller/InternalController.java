@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import top.zxylearn.dto.shop.ShopBillCreateRequest;
+import top.zxylearn.dto.shop.ShopBillVO;
 import top.zxylearn.dto.shop.ShopReviewCreateRequest;
 import top.zxylearn.dto.shop.ShopSalesIncreaseRequest;
 import top.zxylearn.result.Result;
@@ -52,6 +54,20 @@ public class InternalController {
         } catch (RuntimeException ex) {
             log.error("店铺销量更新失败", ex);
             return Result.fail(500, "店铺销量更新失败");
+        }
+    }
+
+
+    @Operation(summary = "创建账单")
+    @PostMapping("/create-bill")
+    public Result<ShopBillVO> createBill(@RequestBody ShopBillCreateRequest request) {
+        try {
+            return Result.success(shopService.createBill(request));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("账单创建失败", ex);
+            return Result.fail(500, "账单创建失败");
         }
     }
 }

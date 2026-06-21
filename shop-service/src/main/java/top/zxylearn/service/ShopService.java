@@ -1,7 +1,15 @@
 package top.zxylearn.service;
 
+import co.elastic.clients.elasticsearch._types.DistanceUnit;
+import co.elastic.clients.elasticsearch._types.GeoDistanceType;
+import co.elastic.clients.elasticsearch._types.GeoLocation;
+import co.elastic.clients.elasticsearch._types.SortOptions;
+import co.elastic.clients.elasticsearch._types.SortOrder;
+import co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,20 +18,31 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.SearchHit;
+import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import top.zxylearn.constant.MqConstants;
+import top.zxylearn.document.ShopDocument;
 import top.zxylearn.dto.ShopCreateRequest;
 import top.zxylearn.dto.ShopItemCreateRequest;
+import top.zxylearn.dto.ShopItemSwapRequest;
+import top.zxylearn.dto.ShopItemUpdateRequest;
 import top.zxylearn.dto.ShopReviewReplyRequest;
 import top.zxylearn.dto.ShopStatusUpdateRequest;
 import top.zxylearn.dto.ShopUpdateRequest;
 import top.zxylearn.dto.shop.ShopEsIndexEventDTO;
+import top.zxylearn.dto.shop.ShopBillCreateRequest;
+import top.zxylearn.dto.shop.ShopBillVO;
 import top.zxylearn.dto.shop.ShopReviewCreateRequest;
 import top.zxylearn.dto.shop.ShopSalesIncreaseRequest;
 import top.zxylearn.entity.Shop;
@@ -37,6 +56,7 @@ import top.zxylearn.mapper.ShopReviewImageMapper;
 import top.zxylearn.mapper.ShopReviewMapper;
 import top.zxylearn.mapper.ShopReviewReplyMapper;
 import top.zxylearn.vo.CursorPageVO;
+import top.zxylearn.vo.PageVO;
 import top.zxylearn.vo.ShopItemVO;
 import top.zxylearn.vo.ShopReviewReplyVO;
 import top.zxylearn.vo.ShopReviewVO;
@@ -44,12 +64,17 @@ import top.zxylearn.vo.ShopVO;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -72,7 +97,13 @@ public class ShopService {
     private static final String SHOP_ITEM_LIST_KEY_PREFIX = "shop:item:list:";
     private static final String SHOP_LOCK_KEY_PREFIX = "shop:lock:";
     private static final String SHOP_ES_INDEX_DELAY_KEY_PREFIX = "shop:es:index-delay:";
+    private static final String SHOP_SEARCH_HOT_KEY_PREFIX = "shop:search:hot:";
+    private static final String SHOP_SEARCH_SUGGEST_KEY_PREFIX = "shop:search:suggest:";
     private static final String NULL_CACHE_VALUE = "__NULL__";
+    private static final DateTimeFormatter SEARCH_HOT_DATE_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
+    private static final String SEARCH_SORT_RATING = "rating";
+    private static final String SEARCH_SORT_SALES = "sales";
+    private static final String ES_FIELD_LOCATION = "location";
     private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
             Long.class
@@ -85,6 +116,7 @@ public class ShopService {
     private final ShopReviewReplyMapper shopReviewReplyMapper;
     private final RabbitTemplate rabbitTemplate;
     private final StringRedisTemplate stringRedisTemplate;
+    private final ElasticsearchOperations elasticsearchOperations;
     private final ObjectMapper objectMapper;
     private final Duration cacheTtl;
     private final Duration nullCacheTtl;
@@ -94,6 +126,11 @@ public class ShopService {
     private final Duration esIndexDelay;
     private final int defaultReviewPageSize;
     private final int maxReviewPageSize;
+    private final int defaultSearchPageSize;
+    private final int maxSearchPageSize;
+    private final Duration hotSearchTtl;
+    private final Duration suggestSearchTtl;
+    private final int suggestMaxPrefixLength;
 
     public ShopService(ShopMapper shopMapper,
                        ShopItemMapper shopItemMapper,
@@ -102,6 +139,7 @@ public class ShopService {
                        ShopReviewReplyMapper shopReviewReplyMapper,
                        RabbitTemplate rabbitTemplate,
                        StringRedisTemplate stringRedisTemplate,
+                       ElasticsearchOperations elasticsearchOperations,
                        @Value("${shop.cache.ttl}") Duration cacheTtl,
                        @Value("${shop.cache.null-ttl}") Duration nullCacheTtl,
                        @Value("${shop.cache.lock-ttl}") Duration lockTtl,
@@ -109,7 +147,12 @@ public class ShopService {
                        @Value("${shop.cache.null-ttl-jitter-seconds}") int nullCacheTtlJitterSeconds,
                        @Value("${shop.es-index.delay}") Duration esIndexDelay,
                        @Value("${shop.review.page-size.default}") int defaultReviewPageSize,
-                       @Value("${shop.review.page-size.max}") int maxReviewPageSize) {
+                       @Value("${shop.review.page-size.max}") int maxReviewPageSize,
+                       @Value("${shop.search.page-size.default}") int defaultSearchPageSize,
+                       @Value("${shop.search.page-size.max}") int maxSearchPageSize,
+                       @Value("${shop.search.hot-ttl}") Duration hotSearchTtl,
+                       @Value("${shop.search.suggest-ttl}") Duration suggestSearchTtl,
+                       @Value("${shop.search.suggest-max-prefix-length}") int suggestMaxPrefixLength) {
         this.shopMapper = shopMapper;
         this.shopItemMapper = shopItemMapper;
         this.shopReviewMapper = shopReviewMapper;
@@ -117,6 +160,7 @@ public class ShopService {
         this.shopReviewReplyMapper = shopReviewReplyMapper;
         this.rabbitTemplate = rabbitTemplate;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.elasticsearchOperations = elasticsearchOperations;
         this.cacheTtl = cacheTtl;
         this.nullCacheTtl = nullCacheTtl;
         this.lockTtl = lockTtl;
@@ -125,6 +169,11 @@ public class ShopService {
         this.esIndexDelay = esIndexDelay;
         this.defaultReviewPageSize = defaultReviewPageSize;
         this.maxReviewPageSize = maxReviewPageSize;
+        this.defaultSearchPageSize = defaultSearchPageSize;
+        this.maxSearchPageSize = maxSearchPageSize;
+        this.hotSearchTtl = hotSearchTtl;
+        this.suggestSearchTtl = suggestSearchTtl;
+        this.suggestMaxPrefixLength = suggestMaxPrefixLength;
         this.objectMapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -213,22 +262,87 @@ public class ShopService {
         item.setPrice(checkMoney(request.getPrice(), "商品价格"));
         item.setStatus(STATUS_NORMAL);
         shopItemMapper.insert(item);
-        evictShopItemListCache(shop.getId());
+        item.setSort(item.getId());
+        shopItemMapper.updateById(item);
+        refreshShopItemListCache(shop.getId());
         publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_UPSERT);
         return toShopItemVO(item);
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void deleteItem(String userId, String shopId, String itemId) {
-        Shop shop = getOwnShop(userId, shopId);
-        checkShopAvailable(shop);
+    public void deleteItem(String userId, String itemId) {
         ShopItem item = getShopItemById(itemId);
-        if (!shop.getId().equals(item.getShopId())) {
-            throw new IllegalArgumentException("商品不属于该店铺");
-        }
+        Shop shop = getOwnShop(userId, String.valueOf(item.getShopId()));
+        checkShopAvailable(shop);
         shopItemMapper.deleteById(item.getId());
-        evictShopItemListCache(shop.getId());
+        refreshShopItemListCache(shop.getId());
         publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_UPSERT);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public ShopItemVO updateItem(String userId, String itemId, ShopItemUpdateRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("商品修改参数不能为空");
+        }
+        ShopItem item = getShopItemById(itemId);
+        Shop shop = getOwnShop(userId, String.valueOf(item.getShopId()));
+        checkShopAvailable(shop);
+
+        boolean changed = false;
+        if (hasText(request.getName())) {
+            item.setName(checkRequiredText(request.getName(), 100, "商品名称"));
+            changed = true;
+        }
+        if (request.getImage() != null) {
+            item.setImage(request.getImage().isBlank() ? null : checkOptionalText(request.getImage(), 500, "商品图片URL"));
+            changed = true;
+        }
+        if (hasText(request.getDescription())) {
+            item.setDescription(checkRequiredText(request.getDescription(), 500, "商品描述"));
+            changed = true;
+        }
+        if (request.getPrice() != null) {
+            item.setPrice(checkMoney(request.getPrice(), "商品价格"));
+            changed = true;
+        }
+        if (request.getStatus() != null) {
+            int status = request.getStatus();
+            if (status != 0 && status != 1) {
+                throw new IllegalArgumentException("商品状态只能为0正常或1下架");
+            }
+            item.setStatus(status);
+            changed = true;
+        }
+
+        if (!changed) {
+            return toShopItemVO(item);
+        }
+        shopItemMapper.updateById(item);
+        refreshShopItemListCache(shop.getId());
+        publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_UPSERT);
+        return toShopItemVO(shopItemMapper.selectById(item.getId()));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void swapItems(String userId, ShopItemSwapRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("交换参数不能为空");
+        }
+        ShopItem itemA = getShopItemById(request.getItemIdA());
+        ShopItem itemB = getShopItemById(request.getItemIdB());
+        if (!itemA.getShopId().equals(itemB.getShopId())) {
+            throw new IllegalArgumentException("两个商品不属于同一店铺");
+        }
+        Shop shop = getOwnShop(userId, String.valueOf(itemA.getShopId()));
+        checkShopAvailable(shop);
+
+        Long sortA = itemA.getSort();
+        Long sortB = itemB.getSort();
+        itemA.setSort(sortB);
+        itemB.setSort(sortA);
+        shopItemMapper.updateById(itemA);
+        shopItemMapper.updateById(itemB);
+        refreshShopItemListCache(shop.getId());
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -247,8 +361,21 @@ public class ShopService {
     public void deleteItemByAdmin(String itemId) {
         ShopItem item = getShopItemById(itemId);
         shopItemMapper.deleteById(item.getId());
-        evictShopItemListCache(item.getShopId());
+        refreshShopItemListCache(item.getShopId());
         publishShopEsIndexAfterCommit(item.getShopId(), ShopEsIndexEventDTO.ACTION_UPSERT);
+    }
+
+    public PageVO<ShopVO> listOwnShops(String userId, Integer page, Integer size) {
+        Long userLong = parseLongId(userId, "用户ID");
+        int pageNum = page != null && page > 0 ? page : 1;
+        int pageSize = normalizePageSize(size);
+
+        Page<Shop> mpPage = new Page<>(pageNum, pageSize);
+        Page<Shop> result = shopMapper.selectPage(mpPage,
+                new LambdaQueryWrapper<Shop>().eq(Shop::getUserId, userLong));
+
+        List<ShopVO> items = result.getRecords().stream().map(this::toShopVO).toList();
+        return new PageVO<>(items, result.getTotal(), pageNum, pageSize);
     }
 
     public ShopVO getShop(String shopId) {
@@ -257,12 +384,22 @@ public class ShopService {
         return shopVO;
     }
 
+    public ShopVO getShopForUser(String userId, String shopId) {
+        Long userLong = userId != null ? parseLongId(userId, "用户ID") : null;
+        ShopVO shopVO = getShopWithCache(shopId);
+        if (userLong != null && String.valueOf(userLong).equals(shopVO.getUserId())) {
+            return shopVO;
+        }
+        checkShopAvailable(shopVO);
+        return shopVO;
+    }
+
     public ShopVO getShopByAdmin(String shopId) {
         return getShopWithCache(shopId);
     }
 
-    public List<ShopItemVO> listShopItems(String shopId) {
-        ShopVO shopVO = getShop(shopId);
+    public List<ShopItemVO> listShopItems(String userId, String shopId) {
+        ShopVO shopVO = getShopForUser(userId, shopId);
         return listShopItemsWithCache(shopVO.getShopId());
     }
 
@@ -426,6 +563,330 @@ public class ShopService {
         publishDelayedShopEsIndexAfterCommit(shopId);
     }
 
+    public ShopBillVO createBill(ShopBillCreateRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("账单参数不能为空");
+        }
+        Long shopId = parseLongId(request.getShopId(), "店铺ID");
+        Shop shop = shopMapper.selectById(shopId);
+        if (shop == null) {
+            throw new IllegalArgumentException("店铺不存在");
+        }
+        checkShopAvailable(shop);
+
+        List<ShopBillCreateRequest.ItemEntry> requestItems = request.getItems();
+        if (requestItems == null || requestItems.isEmpty()) {
+            throw new IllegalArgumentException("购买商品列表不能为空");
+        }
+
+        List<Long> itemIds = new java.util.ArrayList<>();
+        java.util.Map<Long, Integer> quantityMap = new java.util.LinkedHashMap<>();
+        for (ShopBillCreateRequest.ItemEntry entry : requestItems) {
+            Long itemId = parseLongId(entry.getItemId(), "商品ID");
+            Integer quantity = entry.getQuantity();
+            if (quantity == null || quantity <= 0) {
+                throw new IllegalArgumentException("商品" + entry.getItemId() + "的购买数量必须大于0");
+            }
+            if (quantityMap.containsKey(itemId)) {
+                throw new IllegalArgumentException("商品" + entry.getItemId() + "重复提交");
+            }
+            quantityMap.put(itemId, quantity);
+            itemIds.add(itemId);
+        }
+
+        List<ShopItem> items = shopItemMapper.selectBatchIds(itemIds);
+        if (items.size() != itemIds.size()) {
+            throw new IllegalArgumentException("部分商品不存在");
+        }
+
+        java.util.Map<Long, ShopItem> itemMap = new java.util.LinkedHashMap<>();
+        for (ShopItem item : items) {
+            itemMap.put(item.getId(), item);
+        }
+
+        BigDecimal itemsTotal = BigDecimal.ZERO;
+        List<ShopBillVO.ItemEntry> billItems = new java.util.ArrayList<>();
+
+        for (Long itemId : itemIds) {
+            ShopItem item = itemMap.get(itemId);
+            if (!shopId.equals(item.getShopId())) {
+                throw new IllegalArgumentException("商品\"" + item.getName() + "\"不属于该店铺");
+            }
+            if (item.getStatus() != null && item.getStatus() != 0) {
+                throw new IllegalArgumentException("商品\"" + item.getName() + "\"已下架");
+            }
+            Integer quantity = quantityMap.get(itemId);
+            BigDecimal subtotal = item.getPrice().multiply(BigDecimal.valueOf(quantity));
+            itemsTotal = itemsTotal.add(subtotal);
+            billItems.add(new ShopBillVO.ItemEntry(
+                    String.valueOf(item.getId()),
+                    item.getName(),
+                    item.getPrice(),
+                    quantity,
+                    subtotal
+            ));
+        }
+
+        BigDecimal deliveryFee = shop.getDeliveryFee() != null ? shop.getDeliveryFee() : BigDecimal.ZERO;
+        BigDecimal totalAmount = itemsTotal.add(deliveryFee);
+
+        return new ShopBillVO(
+                String.valueOf(shop.getId()),
+                shop.getName(),
+                String.valueOf(shop.getUserId()),
+                deliveryFee,
+                billItems,
+                itemsTotal,
+                totalAmount
+        );
+    }
+
+
+    public List<String> listHotSearch() {
+        return readTopZSetMembers(buildHotSearchKey(), 10);
+    }
+
+    public List<String> suggestSearch(String query) {
+        String normalizedQuery = normalizeSearchQuery(query);
+        if (!hasText(normalizedQuery)) {
+            throw new IllegalArgumentException("搜索提示关键字不能为空");
+        }
+        return readTopZSetMembers(buildSuggestSearchKey(normalizedQuery), 10);
+    }
+
+    public CursorPageVO<ShopVO> searchShops(BigDecimal longitude,
+                                            BigDecimal latitude,
+                                            String query,
+                                            String sort,
+                                            String cursor,
+                                            Integer size) {
+        int pageSize = normalizeSearchPageSize(size);
+        boolean hasLongitude = longitude != null;
+        boolean hasLatitude = latitude != null;
+        if (!hasLongitude != !hasLatitude) {
+            throw new IllegalArgumentException("经纬度必须同时传入");
+        }
+        String normalizedQuery = normalizeSearchQuery(query);
+        recordSearchKeyword(normalizedQuery);
+        String normalizedSort = normalizeSearchSort(sort);
+        BigDecimal normalizedLongitude = hasLongitude ? checkLongitude(longitude) : null;
+        BigDecimal normalizedLatitude = hasLatitude ? checkLatitude(latitude) : null;
+
+        // 有关键词：_score + id = 2；无关键词：有坐标 3、无坐标 2
+        int expectedSortValues = hasText(normalizedQuery) ? 2 : (hasLongitude ? 3 : 2);
+        Object[] searchAfter = parseSearchAfterCursor(cursor, expectedSortValues);
+        return searchShopsFromEs(normalizedLongitude, normalizedLatitude, normalizedQuery, normalizedSort, searchAfter, pageSize);
+    }
+
+    // ======================== ES 搜索 ========================
+
+    private CursorPageVO<ShopVO> searchShopsFromEs(BigDecimal longitude,
+                                                   BigDecimal latitude,
+                                                   String keyword,
+                                                   String sort,
+                                                   Object[] searchAfter,
+                                                   int pageSize) {
+        int fetchSize = Math.min(pageSize * 4 + 1, maxSearchPageSize * 4 + 1);
+        List<ShopVO> records = new ArrayList<>(pageSize);
+        boolean hasMore = false;
+        Set<Long> seenIds = new LinkedHashSet<>();
+        List<Object> lastRecordSortValues = null;
+
+        // 首页：递进半径；翻页：直接不限半径，避免游标和半径变化冲突
+        List<Double> radiusPlan = searchAfter != null
+                ? java.util.Collections.singletonList(null)
+                : buildSearchRadiusPlan(longitude);
+
+        for (Double radiusKm : radiusPlan) {
+            SearchHits<ShopDocument> hits = searchShopDocuments(longitude, latitude, keyword, sort, radiusKm, searchAfter, fetchSize);
+            List<SearchHit<ShopDocument>> hitList = hits.getSearchHits();
+            if (hitList.isEmpty()) {
+                continue;
+            }
+            // 记录每条命中对应的 sortValues，供 shops 通过后使用
+            Map<Long, List<Object>> sortValuesMap = new LinkedHashMap<>();
+            List<Long> ids = new ArrayList<>();
+            for (SearchHit<ShopDocument> hit : hitList) {
+                Long id = hit.getContent().getId();
+                if (id != null && seenIds.add(id)) {
+                    ids.add(id);
+                    sortValuesMap.put(id, hit.getSortValues());
+                }
+            }
+            if (ids.isEmpty()) {
+                continue;
+            }
+            for (Shop shop : selectShopsByIdsInOrder(ids)) {
+                if (isShopVisibleNow(shop)) {
+                    records.add(toShopVO(shop));
+                    lastRecordSortValues = sortValuesMap.get(shop.getId());
+                    if (records.size() == pageSize + 1) {
+                        hasMore = true;
+                        break;
+                    }
+                }
+            }
+            if (records.size() >= pageSize + 1) {
+                break;
+            }
+            if (hitList.size() == fetchSize) {
+                hasMore = true;
+                break;
+            }
+        }
+
+        if (records.size() > pageSize) {
+            records = records.subList(0, pageSize);
+        }
+
+        // 用最后一条实际返回记录的 sortValues 生成游标
+        String nextCursor = null;
+        if (hasMore && lastRecordSortValues != null) {
+            nextCursor = encodeSearchAfterCursorFromSortValues(lastRecordSortValues);
+        }
+        return new CursorPageVO<>(records, nextCursor, hasMore);
+    }
+
+    // ======================== ES 半径计划 ========================
+
+    private static final List<Double> SEARCH_RADIUS_PLAN = java.util.Arrays.asList(5.0, 10.0, 30.0, 50.0, null);
+
+    private List<Double> buildSearchRadiusPlan(BigDecimal longitude) {
+        return longitude != null ? SEARCH_RADIUS_PLAN : java.util.Collections.singletonList(null);
+    }
+
+    // ======================== ES 查询构建 ========================
+
+    private Query buildShopSearchQuery(BigDecimal longitude,
+                                       BigDecimal latitude,
+                                       String keyword,
+                                       Double radiusKm) {
+        BoolQuery.Builder bool = new BoolQuery.Builder();
+        bool.filter(q -> q.term(t -> t.field("status").value(STATUS_NORMAL)));
+        if (radiusKm != null && longitude != null) {
+            bool.filter(q -> q.geoDistance(g -> g
+                    .field(ES_FIELD_LOCATION)
+                    .location(buildGeoLocation(longitude, latitude))
+                    .distance(formatRadius(radiusKm))
+                    .distanceType(GeoDistanceType.Arc)));
+        }
+        if (hasText(keyword)) {
+            String normalizedKeyword = keyword.trim();
+            bool.must(q -> q.multiMatch(m -> m
+                    .query(normalizedKeyword)
+                    .fields("name^3", "description^2", "item_content")
+                    .minimumShouldMatch("75%")));
+        } else {
+            bool.must(q -> q.matchAll(m -> m));
+        }
+        return new Query.Builder().bool(bool.build()).build();
+    }
+
+    private List<SortOptions> buildShopSearchSort(BigDecimal longitude, BigDecimal latitude, String sort,
+                                                   boolean hasKeyword) {
+        List<SortOptions> sortOptions = new ArrayList<>();
+        boolean hasLocation = longitude != null;
+        if (hasKeyword) {
+            sortOptions.add(SortOptions.of(s -> s.score(f -> f.order(SortOrder.Desc))));
+        } else if (SEARCH_SORT_SALES.equals(sort)) {
+            sortOptions.add(SortOptions.of(s -> s.field(f -> f.field("sales_count").order(SortOrder.Desc).missing(0))));
+            if (hasLocation) {
+                sortOptions.add(buildGeoDistanceSort(longitude, latitude));
+            }
+        } else {
+            sortOptions.add(SortOptions.of(s -> s.field(f -> f.field("review_score").order(SortOrder.Desc).missing(0))));
+            if (hasLocation) {
+                sortOptions.add(buildGeoDistanceSort(longitude, latitude));
+            }
+        }
+        sortOptions.add(SortOptions.of(s -> s.field(f -> f.field("id").order(SortOrder.Desc))));
+        return sortOptions;
+    }
+
+    private SearchHits<ShopDocument> searchShopDocuments(BigDecimal longitude,
+                                                         BigDecimal latitude,
+                                                         String keyword,
+                                                         String sort,
+                                                         Double radiusKm,
+                                                         Object[] searchAfter,
+                                                         int fetchSize) {
+        NativeQuery nativeQuery = NativeQuery.builder()
+                .withQuery(buildShopSearchQuery(longitude, latitude, keyword, radiusKm))
+                .withSort(buildShopSearchSort(longitude, latitude, sort, hasText(keyword)))
+                .withSearchAfter(searchAfter != null ? List.of(searchAfter) : null)
+                .withPageable(PageRequest.of(0, fetchSize))
+                .build();
+        return elasticsearchOperations.search(nativeQuery, ShopDocument.class);
+    }
+
+    private String encodeSearchAfterCursorFromSortValues(List<Object> sortValues) {
+        if (sortValues == null || sortValues.isEmpty()) {
+            return null;
+        }
+        return encodeSearchAfterCursor(sortValues.toArray());
+    }
+
+    private SortOptions buildGeoDistanceSort(BigDecimal longitude, BigDecimal latitude) {
+        return SortOptions.of(s -> s.geoDistance(g -> g
+                .field(ES_FIELD_LOCATION)
+                .location(buildGeoLocation(longitude, latitude))
+                .order(SortOrder.Asc)
+                .unit(DistanceUnit.Kilometers)
+                .distanceType(GeoDistanceType.Arc)
+                .ignoreUnmapped(true)));
+    }
+
+    private GeoLocation buildGeoLocation(BigDecimal longitude, BigDecimal latitude) {
+        return GeoLocation.of(g -> g.latlon(ll -> ll
+                .lat(latitude.doubleValue())
+                .lon(longitude.doubleValue())));
+    }
+
+    private String formatRadius(Double radiusKm) {
+        if (radiusKm == null) {
+            return null;
+        }
+        if (Math.floor(radiusKm) == radiusKm) {
+            return radiusKm.longValue() + "km";
+        }
+        return radiusKm + "km";
+    }
+
+    private List<Shop> selectShopsByIdsInOrder(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Shop> shops = shopMapper.selectBatchIds(ids);
+        Map<Long, Shop> shopMap = new LinkedHashMap<>();
+        for (Shop shop : shops) {
+            shopMap.put(shop.getId(), shop);
+        }
+        return ids.stream()
+                .map(shopMap::get)
+                .filter(shop -> shop != null)
+                .toList();
+    }
+
+    private boolean isShopVisibleNow(Shop shop) {
+        return shop != null
+                && Integer.valueOf(STATUS_NORMAL).equals(shop.getStatus())
+                && isOpenNow(shop.getOpenTime(), shop.getCloseTime());
+    }
+
+    private boolean isOpenNow(LocalTime openTime, LocalTime closeTime) {
+        if (openTime == null || closeTime == null) {
+            return false;
+        }
+        if (openTime.equals(closeTime)) {
+            return true;
+        }
+        LocalTime now = LocalTime.now();
+        if (openTime.isBefore(closeTime)) {
+            return !now.isBefore(openTime) && !now.isAfter(closeTime);
+        }
+        return !now.isBefore(openTime) || !now.isAfter(closeTime);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public ShopVO updateShopStatus(String shopId, ShopStatusUpdateRequest request) {
         if (request == null) {
@@ -494,6 +955,112 @@ public class ShopService {
         return imageMap;
     }
 
+
+    private void recordSearchKeyword(String query) {
+        if (!hasText(query)) {
+            return;
+        }
+        String hotKey = buildHotSearchKey();
+        stringRedisTemplate.opsForZSet().incrementScore(hotKey, query, 1D);
+        stringRedisTemplate.expire(hotKey, hotSearchTtl);
+
+        int maxLength = Math.min(query.length(), Math.max(suggestMaxPrefixLength, 1));
+        for (int i = 1; i <= maxLength; i++) {
+            String suggestKey = buildSuggestSearchKey(query.substring(0, i));
+            stringRedisTemplate.opsForZSet().incrementScore(suggestKey, query, 1D);
+            stringRedisTemplate.expire(suggestKey, suggestSearchTtl);
+        }
+    }
+
+    private List<String> readTopZSetMembers(String key, int limit) {
+        Set<String> values = stringRedisTemplate.opsForZSet()
+                .reverseRange(key, 0, Math.max(limit, 1) - 1L);
+        if (values == null || values.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return List.copyOf(values);
+    }
+
+    private String normalizeSearchQuery(String query) {
+        if (!hasText(query)) {
+            return null;
+        }
+        return query.trim();
+    }
+
+    private String buildHotSearchKey() {
+        return SHOP_SEARCH_HOT_KEY_PREFIX + SEARCH_HOT_DATE_FORMATTER.format(LocalDate.now());
+    }
+
+    private String buildSuggestSearchKey(String prefix) {
+        return SHOP_SEARCH_SUGGEST_KEY_PREFIX + prefix;
+    }
+
+    private int normalizeSearchPageSize(Integer size) {
+        if (size == null) {
+            return defaultSearchPageSize;
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("分页大小必须大于0");
+        }
+        return Math.min(size, maxSearchPageSize);
+    }
+
+    /**
+     * 解析游标为 search_after 值数组。游标格式：{v1}_{v2}_{...}
+     * 若游标值个数与预期不符（如切换了排序方式），返回 null 从头开始。
+     */
+    private Object[] parseSearchAfterCursor(String cursor, int expectedCount) {
+        if (!hasText(cursor)) {
+            return null;
+        }
+        try {
+            String[] parts = cursor.trim().split("_");
+            if (parts.length != expectedCount) {
+                return null; // 排序方式变了，忽略旧游标从头搜
+            }
+            Object[] values = new Object[parts.length];
+            for (int i = 0; i < parts.length; i++) {
+                String part = parts[i];
+                if (part.contains(".")) {
+                    values[i] = Double.parseDouble(part);
+                } else {
+                    values[i] = Long.parseLong(part);
+                }
+            }
+            return values;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private String encodeSearchAfterCursor(Object... values) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) sb.append('_');
+            sb.append(values[i]);
+        }
+        return sb.toString();
+    }
+
+    private String normalizeSearchSort(String sort) {
+        if (!hasText(sort)) {
+            return SEARCH_SORT_RATING;
+        }
+        String raw = sort.trim();
+        String normalized = raw.toLowerCase();
+        if ("score".equals(normalized) || "rating".equals(normalized)
+                || "review".equals(normalized)
+                || "评分".equals(raw) || "评价".equals(raw)
+                || "评价平均分".equals(raw) || "综合".equals(raw)) {
+            return SEARCH_SORT_RATING;
+        }
+        if ("sales".equals(normalized) || "销量".equals(raw)) {
+            return SEARCH_SORT_SALES;
+        }
+        return SEARCH_SORT_RATING;
+    }
+
     private int normalizeReviewPageSize(Integer size) {
         if (size == null) {
             return defaultReviewPageSize;
@@ -502,6 +1069,16 @@ public class ShopService {
             throw new IllegalArgumentException("分页大小必须大于0");
         }
         return Math.min(size, maxReviewPageSize);
+    }
+
+    private int normalizePageSize(Integer size) {
+        if (size == null) {
+            return 20;
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("分页大小必须大于0");
+        }
+        return Math.min(size, 100);
     }
 
     private String buildNextCursor(List<ShopReviewVO> records, boolean hasMore) {
@@ -670,7 +1247,7 @@ public class ShopService {
         shopItemMapper.delete(new LambdaQueryWrapper<ShopItem>().eq(ShopItem::getShopId, shop.getId()));
         shopMapper.deleteById(shop.getId());
         evictShopCache(shop.getId());
-        evictShopItemListCache(shop.getId());
+        refreshShopItemListCache(shop.getId());
         publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_DELETE);
     }
 
@@ -769,7 +1346,8 @@ public class ShopService {
     private List<ShopItemVO> selectShopItems(String shopId) {
         return shopItemMapper.selectList(new LambdaQueryWrapper<ShopItem>()
                         .eq(ShopItem::getShopId, Long.valueOf(shopId))
-                        .orderByDesc(ShopItem::getCreateTime))
+                        .orderByAsc(ShopItem::getStatus)
+                        .orderByAsc(ShopItem::getSort))
                 .stream()
                 .map(this::toShopItemVO)
                 .toList();
@@ -795,9 +1373,11 @@ public class ShopService {
         }
     }
 
-    private void evictShopItemListCache(Long shopId) {
+    private void refreshShopItemListCache(Long shopId) {
         if (shopId != null) {
-            stringRedisTemplate.delete(buildShopItemListKey(String.valueOf(shopId)));
+            String normalizedShopId = String.valueOf(shopId);
+            List<ShopItemVO> items = selectShopItems(normalizedShopId);
+            cacheShopItemList(normalizedShopId, items);
         }
     }
 
@@ -935,6 +1515,7 @@ public class ShopService {
                 item.getImage(),
                 item.getDescription(),
                 item.getPrice(),
+                item.getSort(),
                 item.getStatus(),
                 item.getCreateTime(),
                 item.getUpdateTime()

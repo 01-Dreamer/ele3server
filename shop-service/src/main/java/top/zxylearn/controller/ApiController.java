@@ -16,16 +16,20 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.zxylearn.dto.ShopCreateRequest;
 import top.zxylearn.dto.ShopItemCreateRequest;
+import top.zxylearn.dto.ShopItemSwapRequest;
+import top.zxylearn.dto.ShopItemUpdateRequest;
 import top.zxylearn.dto.ShopReviewReplyRequest;
 import top.zxylearn.dto.ShopUpdateRequest;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.ShopService;
 import top.zxylearn.vo.CursorPageVO;
+import top.zxylearn.vo.PageVO;
 import top.zxylearn.vo.ShopItemVO;
 import top.zxylearn.vo.ShopReviewReplyVO;
 import top.zxylearn.vo.ShopReviewVO;
 import top.zxylearn.vo.ShopVO;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Tag(name = "用户接口")
@@ -55,7 +59,7 @@ public class ApiController {
         }
     }
 
-    @Operation(summary = "修改自己的店铺信息")
+    @Operation(summary = "修改店铺信息")
     @PutMapping("/modify-shop/{shopId}")
     public Result<ShopVO> updateShop(@RequestHeader("X-User-Id") String userId,
                                      @PathVariable String shopId,
@@ -70,7 +74,7 @@ public class ApiController {
         }
     }
 
-    @Operation(summary = "给自己的店铺添加商品")
+    @Operation(summary = "给店铺添加商品")
     @PostMapping("/add-item/{shopId}")
     public Result<ShopItemVO> addItem(@RequestHeader("X-User-Id") String userId,
                                       @PathVariable String shopId,
@@ -85,19 +89,48 @@ public class ApiController {
         }
     }
 
-    @Operation(summary = "删除自己店铺的商品")
-    @DeleteMapping("/delete-item/{shopId}/{itemId}")
+    @Operation(summary = "删除店铺商品")
+    @DeleteMapping("/delete-item/{itemId}")
     public Result<?> deleteItem(@RequestHeader("X-User-Id") String userId,
-                                @PathVariable String shopId,
                                 @PathVariable String itemId) {
         try {
-            shopService.deleteItem(userId, shopId, itemId);
+            shopService.deleteItem(userId, itemId);
             return Result.success();
         } catch (IllegalArgumentException ex) {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
             log.error("商品删除失败", ex);
             return Result.fail(500, "商品删除失败");
+        }
+    }
+
+    @Operation(summary = "修改店铺商品")
+    @PutMapping("/modify-item/{itemId}")
+    public Result<ShopItemVO> updateItem(@RequestHeader("X-User-Id") String userId,
+                                          @PathVariable String itemId,
+                                          @RequestBody ShopItemUpdateRequest request) {
+        try {
+            return Result.success(shopService.updateItem(userId, itemId, request));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("商品修改失败", ex);
+            return Result.fail(500, "商品修改失败");
+        }
+    }
+
+    @Operation(summary = "调换店铺两个商品的顺序")
+    @PutMapping("/swap-items")
+    public Result<?> swapItems(@RequestHeader("X-User-Id") String userId,
+                               @RequestBody ShopItemSwapRequest request) {
+        try {
+            shopService.swapItems(userId, request);
+            return Result.success();
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("商品顺序调换失败", ex);
+            return Result.fail(500, "商品顺序调换失败");
         }
     }
 
@@ -117,11 +150,27 @@ public class ApiController {
     }
 
 
+    @Operation(summary = "获取自己的店铺列表")
+    @GetMapping("/list-own-shop")
+    public Result<PageVO<ShopVO>> listOwnShops(@RequestHeader("X-User-Id") String userId,
+                                                @RequestParam(value = "page", required = false) Integer page,
+                                                @RequestParam(value = "size", required = false) Integer size) {
+        try {
+            return Result.success(shopService.listOwnShops(userId, page, size));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("自己的店铺列表获取失败", ex);
+            return Result.fail(500, "店铺列表获取失败");
+        }
+    }
+
     @Operation(summary = "根据店铺ID获取店铺信息")
     @GetMapping("/get-shop/{shopId}")
-    public Result<ShopVO> getShop(@PathVariable String shopId) {
+    public Result<ShopVO> getShop(@RequestHeader("X-User-Id") String userId,
+                                  @PathVariable String shopId) {
         try {
-            return Result.success(shopService.getShop(shopId));
+            return Result.success(shopService.getShopForUser(userId, shopId));
         } catch (IllegalArgumentException ex) {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
@@ -132,14 +181,57 @@ public class ApiController {
 
     @Operation(summary = "根据店铺ID获取商品列表")
     @GetMapping("/list-item/{shopId}")
-    public Result<List<ShopItemVO>> listItems(@PathVariable String shopId) {
+    public Result<List<ShopItemVO>> listItems(@RequestHeader("X-User-Id") String userId,
+                                              @PathVariable String shopId) {
         try {
-            return Result.success(shopService.listShopItems(shopId));
+            return Result.success(shopService.listShopItems(userId, shopId));
         } catch (IllegalArgumentException ex) {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
             log.error("商品列表获取失败", ex);
             return Result.fail(500, "商品列表获取失败");
+        }
+    }
+
+    @Operation(summary = "搜索店铺")
+    @GetMapping("/search-shop")
+    public Result<CursorPageVO<ShopVO>> searchShops(@RequestParam(value = "longitude", required = false) BigDecimal longitude,
+                                                    @RequestParam(value = "latitude", required = false) BigDecimal latitude,
+                                                    @RequestParam(value = "query", required = false) String query,
+                                                    @RequestParam(value = "sort", required = false) String sort,
+                                                    @RequestParam(value = "cursor", required = false) String cursor,
+                                                    @RequestParam(value = "size", required = false) Integer size) {
+        try {
+            return Result.success(shopService.searchShops(longitude, latitude, query, sort, cursor, size));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("店铺搜索失败", ex);
+            return Result.fail(500, "店铺搜索失败");
+        }
+    }
+
+    @Operation(summary = "查询热搜关键词")
+    @GetMapping("/list-hot-search")
+    public Result<List<String>> listHotSearch() {
+        try {
+            return Result.success(shopService.listHotSearch());
+        } catch (RuntimeException ex) {
+            log.error("热搜获取失败", ex);
+            return Result.fail(500, "热搜获取失败");
+        }
+    }
+
+    @Operation(summary = "搜索提示")
+    @GetMapping("/suggest-search")
+    public Result<List<String>> suggestSearch(@RequestParam("query") String query) {
+        try {
+            return Result.success(shopService.suggestSearch(query));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.error("搜索提示获取失败", ex);
+            return Result.fail(500, "搜索提示获取失败");
         }
     }
 

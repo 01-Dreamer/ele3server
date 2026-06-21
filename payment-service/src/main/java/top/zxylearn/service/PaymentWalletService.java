@@ -3,6 +3,7 @@ package top.zxylearn.service;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import top.zxylearn.dto.payment.PaymentWalletAddRequest;
 import top.zxylearn.dto.payment.PaymentWalletCreateRequest;
 import top.zxylearn.dto.payment.PaymentWalletDeductRequest;
 import top.zxylearn.entity.PaymentWallet;
@@ -54,6 +55,15 @@ public class PaymentWalletService {
         }
         getWallet(userId);
         throw new IllegalArgumentException("余额不足");
+    }
+
+
+    @Transactional(rollbackFor = Exception.class)
+    public void addBalance(PaymentWalletAddRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("加款参数不能为空");
+        }
+        addBalance(parseUserId(request.getUserId()), request.getAmount());
     }
 
     @Transactional(rollbackFor = Exception.class)

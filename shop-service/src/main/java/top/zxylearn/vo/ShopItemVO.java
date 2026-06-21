@@ -28,6 +28,8 @@ public class ShopItemVO {
 
     private BigDecimal price;
 
+    private Long sort;
+
     private Integer status;
 
     private LocalDateTime createTime;

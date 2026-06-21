@@ -15,6 +15,7 @@ import top.zxylearn.dto.UserLocationCreateRequest;
 import top.zxylearn.dto.UserUpdateRequest;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.UserService;
+import top.zxylearn.vo.UserBriefVO;
 import top.zxylearn.vo.UserLocationVO;
 import top.zxylearn.vo.UserVO;
 
@@ -51,6 +52,19 @@ public class ApiController {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
             return Result.fail(500, "用户资料修改失败");
+        }
+    }
+
+
+    @Operation(summary = "根据用户ID获取头像和昵称")
+    @GetMapping("/brief/{userId}")
+    public Result<UserBriefVO> getUserBrief(@PathVariable String userId) {
+        try {
+            return Result.success(userService.getUserBrief(userId));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, "用户头像昵称获取失败");
         }
     }
 

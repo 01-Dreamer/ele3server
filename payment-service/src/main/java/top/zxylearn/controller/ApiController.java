@@ -10,12 +10,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.zxylearn.dto.WalletRechargeRequest;
+import top.zxylearn.dto.WalletWithdrawRequest;
 import top.zxylearn.dto.payment.PaymentCreateVO;
 import top.zxylearn.result.Result;
 import top.zxylearn.service.PaymentService;
 import top.zxylearn.service.PaymentWalletService;
 import top.zxylearn.vo.PaymentStatusVO;
 import top.zxylearn.vo.PaymentWalletVO;
+import top.zxylearn.vo.WalletWithdrawVO;
 
 @Tag(name = "用户接口")
 @RestController
@@ -52,6 +54,19 @@ public class ApiController {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
             return Result.fail(500, ex.getMessage() == null ? "充值支付订单创建失败" : ex.getMessage());
+        }
+    }
+
+    @Operation(summary = "钱包提现到支付宝账户")
+    @PostMapping("/alipay-withdraw")
+    public Result<WalletWithdrawVO> withdrawToAlipay(@RequestHeader("X-User-Id") String userId,
+                                                     @RequestBody WalletWithdrawRequest request) {
+        try {
+            return Result.success(paymentService.withdrawToAlipay(userId, request));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "钱包提现失败" : ex.getMessage());
         }
     }
 

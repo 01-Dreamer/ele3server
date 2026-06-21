@@ -4,10 +4,15 @@ import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.AlipayConfig;
 import com.alipay.api.DefaultAlipayClient;
+import com.alipay.api.internal.util.AlipaySignature;
+import com.alipay.api.request.AlipayFundTransUniTransferRequest;
 import com.alipay.api.request.AlipayTradeCloseRequest;
 import com.alipay.api.request.AlipayTradePrecreateRequest;
+import com.alipay.api.request.AlipayTradeRefundRequest;
+import com.alipay.api.response.AlipayFundTransUniTransferResponse;
 import com.alipay.api.response.AlipayTradeCloseResponse;
 import com.alipay.api.response.AlipayTradePrecreateResponse;
+import com.alipay.api.response.AlipayTradeRefundResponse;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
@@ -17,15 +22,23 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import top.zxylearn.client.OrderClient;
 import top.zxylearn.config.AlipayProperties;
 import top.zxylearn.constant.MqConstants;
 import top.zxylearn.dto.WalletRechargeRequest;
+import top.zxylearn.dto.WalletWithdrawRequest;
+import top.zxylearn.dto.order.OrderPaidRequest;
 import top.zxylearn.dto.payment.PaymentCloseRequest;
 import top.zxylearn.dto.payment.PaymentCreateRequest;
 import top.zxylearn.dto.payment.PaymentCreateVO;
+import top.zxylearn.dto.payment.PaymentOrderRefundRequest;
+import top.zxylearn.dto.payment.PaymentRefundRequest;
+import top.zxylearn.dto.payment.PaymentWalletDeductRequest;
 import top.zxylearn.entity.Payment;
 import top.zxylearn.mapper.PaymentMapper;
 import top.zxylearn.vo.PaymentStatusVO;
+import top.zxylearn.vo.WalletWithdrawVO;
+import top.zxylearn.result.Result;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -38,10 +51,14 @@ public class PaymentService {
 
     private static final String CHANNEL_ALIPAY = "ALIPAY";
     private static final String ALIPAY_TRADE_NO_PREFIX = "ALIPAY";
+    private static final String ALIPAY_TRANSFER_PRODUCT_CODE = "TRANS_ACCOUNT_NO_PWD";
+    private static final String ALIPAY_TRANSFER_BIZ_SCENE = "DIRECT_TRANSFER";
+    private static final String ALIPAY_USER_IDENTITY_TYPE = "ALIPAY_USER_ID";
     private static final int STATUS_PENDING = 0;
     private static final int STATUS_SUCCESS = 1;
     private static final int STATUS_EXPIRED = 2;
     private static final int STATUS_CANCELLED = 3;
+    private static final int STATUS_REFUNDED = 4;
     private static final String BUSINESS_TYPE_ORDER = "ORDER";
     private static final String BUSINESS_TYPE_RECHARGE = "RECHARGE";
     private static final String ALIPAY_TRADE_SUCCESS = "TRADE_SUCCESS";
@@ -51,6 +68,7 @@ public class PaymentService {
 
     private final PaymentMapper paymentMapper;
     private final PaymentWalletService paymentWalletService;
+    private final OrderClient orderClient;
     private final RabbitTemplate rabbitTemplate;
     private final AlipayProperties alipayProperties;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -58,11 +76,13 @@ public class PaymentService {
 
     public PaymentService(PaymentMapper paymentMapper,
                           PaymentWalletService paymentWalletService,
+                          OrderClient orderClient,
                           RabbitTemplate rabbitTemplate,
                           AlipayProperties alipayProperties,
                           @Value("${payment.recharge.expire-minutes}") Integer rechargeExpireMinutes) {
         this.paymentMapper = paymentMapper;
         this.paymentWalletService = paymentWalletService;
+        this.orderClient = orderClient;
         this.rabbitTemplate = rabbitTemplate;
         this.alipayProperties = alipayProperties;
         this.rechargeExpireMinutes = rechargeExpireMinutes;
@@ -118,6 +138,28 @@ public class PaymentService {
         );
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public WalletWithdrawVO withdrawToAlipay(String userId, WalletWithdrawRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("提现参数不能为空");
+        }
+        Long ownerId = parseLongId(userId, "用户ID");
+        String alipayUserId = checkRequiredText(request.getAlipayUserId(), 64, "支付宝用户UID");
+        checkAmount(request.getAmount());
+
+        String withdrawId = String.valueOf(IdWorker.getId());
+        paymentWalletService.deductBalance(new PaymentWalletDeductRequest(String.valueOf(ownerId), request.getAmount()));
+        AlipayFundTransUniTransferResponse response = transferToAlipayUser(
+                withdrawId, alipayUserId, request.getAmount());
+        return new WalletWithdrawVO(
+                withdrawId,
+                response.getOrderId(),
+                response.getPayFundOrderId(),
+                request.getAmount(),
+                response.getStatus()
+        );
+    }
+
     private PaymentCreateVO createAlipayOrder(Payment payment, Integer expireMinutes) {
         String qrCode = createAlipayQrCode(payment, expireMinutes);
         payment.setPayUrl(qrCode);
@@ -169,22 +211,74 @@ public class PaymentService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    public void refundAlipayOrder(PaymentRefundRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("支付ID不能为空");
+        }
+        Payment payment = getPayment(request.getPaymentId());
+        if (!CHANNEL_ALIPAY.equals(payment.getChannel())) {
+            throw new IllegalArgumentException("只支持支付宝支付订单退款");
+        }
+        if (!Integer.valueOf(STATUS_SUCCESS).equals(payment.getStatus())) {
+            throw new IllegalArgumentException("只有支付成功的订单可以退款");
+        }
+        refundAlipayTrade(payment);
+        int updated = paymentMapper.update(null, new LambdaUpdateWrapper<Payment>()
+                .set(Payment::getStatus, STATUS_REFUNDED)
+                .eq(Payment::getId, payment.getId())
+                .eq(Payment::getStatus, STATUS_SUCCESS));
+        if (updated == 0) {
+            throw new IllegalArgumentException("支付订单状态已变更");
+        }
+    }
+
+
+    @Transactional(rollbackFor = Exception.class)
+    public void refundAlipayOrderByOrderId(PaymentOrderRefundRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("订单ID不能为空");
+        }
+        Long orderId = parseLongId(request.getOrderId(), "订单ID");
+        Payment payment = paymentMapper.selectOne(new LambdaQueryWrapper<Payment>()
+                .eq(Payment::getBusinessType, BUSINESS_TYPE_ORDER)
+                .eq(Payment::getBusinessId, orderId)
+                .eq(Payment::getChannel, CHANNEL_ALIPAY)
+                .eq(Payment::getStatus, STATUS_SUCCESS)
+                .last("LIMIT 1"));
+        if (payment == null) {
+            throw new IllegalArgumentException("支付宝已支付订单不存在");
+        }
+        refundAlipayTrade(payment);
+        int updated = paymentMapper.update(null, new LambdaUpdateWrapper<Payment>()
+                .set(Payment::getStatus, STATUS_REFUNDED)
+                .eq(Payment::getId, payment.getId())
+                .eq(Payment::getStatus, STATUS_SUCCESS));
+        if (updated == 0) {
+            throw new IllegalArgumentException("支付订单状态已变更");
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     public void handleAlipayNotify(Map<String, String> params) {
+        checkAlipayNotifySignature(params);
+        checkNotifyAppId(params);
+
         String outTradeNo = getRequiredNotifyParam(params, "out_trade_no");
         String tradeStatus = getRequiredNotifyParam(params, "trade_status");
         String tradeNo = params.get("trade_no");
         Payment payment = getPayment(outTradeNo);
+        checkNotifyPayment(payment);
 
         if (hasText(tradeNo)) {
             payment.setTradeNo(tradeNo.trim());
         }
 
         if (ALIPAY_TRADE_SUCCESS.equals(tradeStatus) || ALIPAY_TRADE_FINISHED.equals(tradeStatus)) {
+            checkNotifyAmount(payment, params.get("total_amount"));
             if (Integer.valueOf(STATUS_SUCCESS).equals(payment.getStatus())) {
                 paymentMapper.updateById(payment);
                 return;
             }
-            checkNotifyAmount(payment, params.get("total_amount"));
             handlePaymentBusiness(payment);
             payment.setStatus(STATUS_SUCCESS);
             paymentMapper.updateById(payment);
@@ -256,8 +350,11 @@ public class PaymentService {
     private void handlePaymentBusiness(Payment payment) {
         String businessType = payment.getBusinessType();
         if (BUSINESS_TYPE_ORDER.equals(businessType)) {
-            System.out.println("订单支付成功，待处理订单业务: orderId=" + payment.getBusinessId()
-                    + ", paymentId=" + payment.getId());
+            if (payment.getBusinessId() == null) {
+                throw new IllegalArgumentException("订单业务ID不能为空");
+            }
+            checkInternalCall(orderClient.markPaid(new OrderPaidRequest(String.valueOf(payment.getBusinessId()))),
+                    "订单状态修改失败");
             return;
         }
         if (BUSINESS_TYPE_RECHARGE.equals(businessType)) {
@@ -269,6 +366,43 @@ public class PaymentService {
         }
         System.out.println("支付成功，未知业务类型暂未处理: businessType=" + businessType
                 + ", paymentId=" + payment.getId());
+    }
+
+    private void checkInternalCall(Result<?> result, String message) {
+        if (result == null) {
+            throw new RuntimeException(message);
+        }
+        if (result.getCode() == null || result.getCode() < 200 || result.getCode() >= 300) {
+            throw new RuntimeException(result.getMessage() == null ? message : result.getMessage());
+        }
+    }
+
+    private void checkAlipayNotifySignature(Map<String, String> params) {
+        try {
+            boolean valid = AlipaySignature.rsaCheckV1(
+                    params,
+                    alipayProperties.getPublicKey(),
+                    alipayProperties.getCharset(),
+                    alipayProperties.getSignType());
+            if (!valid) {
+                throw new IllegalArgumentException("支付宝回调验签失败");
+            }
+        } catch (AlipayApiException ex) {
+            throw new IllegalArgumentException("支付宝回调验签失败", ex);
+        }
+    }
+
+    private void checkNotifyAppId(Map<String, String> params) {
+        String appId = getRequiredNotifyParam(params, "app_id");
+        if (!appId.equals(alipayProperties.getAppId())) {
+            throw new IllegalArgumentException("支付宝回调app_id不匹配");
+        }
+    }
+
+    private void checkNotifyPayment(Payment payment) {
+        if (!CHANNEL_ALIPAY.equals(payment.getChannel())) {
+            throw new IllegalArgumentException("支付宝回调支付渠道不匹配");
+        }
     }
 
     private void checkNotifyAmount(Payment payment, String totalAmount) {
@@ -293,6 +427,34 @@ public class PaymentService {
         return params.get(name).trim();
     }
 
+    private AlipayFundTransUniTransferResponse transferToAlipayUser(String withdrawId, String alipayUserId, BigDecimal amount) {
+        try {
+            AlipayClient alipayClient = new DefaultAlipayClient(buildAlipayConfig());
+            AlipayFundTransUniTransferRequest request = new AlipayFundTransUniTransferRequest();
+            Map<String, Object> payeeInfo = new LinkedHashMap<>();
+            payeeInfo.put("identity", alipayUserId);
+            payeeInfo.put("identity_type", ALIPAY_USER_IDENTITY_TYPE);
+
+            Map<String, Object> bizContent = new LinkedHashMap<>();
+            bizContent.put("out_biz_no", withdrawId);
+            bizContent.put("trans_amount", amount.toPlainString());
+            bizContent.put("product_code", ALIPAY_TRANSFER_PRODUCT_CODE);
+            bizContent.put("biz_scene", ALIPAY_TRANSFER_BIZ_SCENE);
+            bizContent.put("order_title", "钱包提现");
+            bizContent.put("payee_info", payeeInfo);
+            request.setBizContent(toJson(bizContent));
+
+            AlipayFundTransUniTransferResponse response = alipayClient.execute(request);
+            if (response.isSuccess()) {
+                return response;
+            }
+            String message = hasText(response.getSubMsg()) ? response.getSubMsg() : response.getMsg();
+            throw new RuntimeException("支付宝提现转账失败：" + message);
+        } catch (AlipayApiException ex) {
+            throw new RuntimeException("支付宝提现转账失败", ex);
+        }
+    }
+
     private void closeAlipayTrade(Payment payment) {
         try {
             AlipayClient alipayClient = new DefaultAlipayClient(buildAlipayConfig());
@@ -308,6 +470,25 @@ public class PaymentService {
             throw new RuntimeException("支付宝支付订单关闭失败：" + message);
         } catch (AlipayApiException ex) {
             throw new RuntimeException("支付宝支付订单关闭失败", ex);
+        }
+    }
+
+    private void refundAlipayTrade(Payment payment) {
+        try {
+            AlipayClient alipayClient = new DefaultAlipayClient(buildAlipayConfig());
+            AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
+            Map<String, Object> bizContent = new LinkedHashMap<>();
+            bizContent.put("out_trade_no", String.valueOf(payment.getId()));
+            bizContent.put("refund_amount", payment.getAmount().toPlainString());
+            request.setBizContent(toJson(bizContent));
+            AlipayTradeRefundResponse response = alipayClient.execute(request);
+            if (response.isSuccess()) {
+                return;
+            }
+            String message = hasText(response.getSubMsg()) ? response.getSubMsg() : response.getMsg();
+            throw new RuntimeException("支付宝支付订单退款失败：" + message);
+        } catch (AlipayApiException ex) {
+            throw new RuntimeException("支付宝支付订单退款失败", ex);
         }
     }
 
@@ -376,6 +557,17 @@ public class PaymentService {
         parseLongId(request.getBusinessId(), "订单ID");
         checkAmount(request.getAmount());
         checkExpireMinutes(request.getExpireMinutes());
+    }
+
+    private String checkRequiredText(String value, int maxLength, String fieldName) {
+        if (!hasText(value)) {
+            throw new IllegalArgumentException(fieldName + "不能为空");
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() > maxLength) {
+            throw new IllegalArgumentException(fieldName + "长度不能超过" + maxLength + "个字符");
+        }
+        return trimmed;
     }
 
     private void checkAmount(BigDecimal amount) {

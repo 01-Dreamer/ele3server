@@ -23,7 +23,6 @@
 		<module>payment-service</module>
 		<module>file-service</module>
 		<module>risk-service</module>
-		<module>recommend-service</module>
 		<module>message-service</module>
 		<module>agent-service</module>
 	</modules>
@@ -52,6 +51,7 @@
 		<spring-cloud-alibaba.version>2025.1.0.0</spring-cloud-alibaba.version>
 		<tianai-captcha.version>1.5.5</tianai-captcha.version>
 		<alipay-sdk.version>4.40.837.ALL</alipay-sdk.version>
+		<sensitive-word.version>0.20.0</sensitive-word.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
@@ -105,6 +105,11 @@
 				<groupId>com.alipay.sdk</groupId>
 				<artifactId>alipay-sdk-java</artifactId>
 				<version>${alipay-sdk.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>com.github.houbb</groupId>
+				<artifactId>sensitive-word</artifactId>
+				<version>${sensitive-word.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>

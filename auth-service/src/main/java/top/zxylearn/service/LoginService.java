@@ -11,15 +11,19 @@ import top.zxylearn.client.RiskCaptchaClient;
 import top.zxylearn.dto.LoginRequest;
 import top.zxylearn.dto.RiskCaptchaVerifyRequest;
 import top.zxylearn.entity.AuthAccount;
+import top.zxylearn.entity.AuthThirdAccount;
 import top.zxylearn.mapper.AuthAccountMapper;
+import top.zxylearn.mapper.AuthThirdAccountMapper;
 import top.zxylearn.result.Result;
 import top.zxylearn.vo.LoginTokenVO;
 import top.zxylearn.vo.LoginUserVO;
 import top.zxylearn.vo.LoginVO;
+import top.zxylearn.vo.ThirdAccountVO;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -35,6 +39,7 @@ public class LoginService {
     private static final DateTimeFormatter LOGIN_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final AuthAccountMapper authAccountMapper;
+    private final AuthThirdAccountMapper authThirdAccountMapper;
     private final RiskCaptchaClient riskCaptchaClient;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -42,10 +47,12 @@ public class LoginService {
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public LoginService(AuthAccountMapper authAccountMapper,
+                        AuthThirdAccountMapper authThirdAccountMapper,
                         RiskCaptchaClient riskCaptchaClient,
                         StringRedisTemplate stringRedisTemplate,
                         @Value("${auth.login.ttl}") Duration loginTtl) {
         this.authAccountMapper = authAccountMapper;
+        this.authThirdAccountMapper = authThirdAccountMapper;
         this.riskCaptchaClient = riskCaptchaClient;
         this.stringRedisTemplate = stringRedisTemplate;
         this.loginTtl = loginTtl;
@@ -75,6 +82,30 @@ public class LoginService {
         return buildLoginResult(account, loginIp);
     }
 
+    public void logout(String token) {
+        if (token == null || token.isBlank()) {
+            throw new IllegalArgumentException("token不能为空");
+        }
+        String tokenKey = buildLoginTokenKey(token.trim());
+        String tokenJson = stringRedisTemplate.opsForValue().get(tokenKey);
+        if (tokenJson != null) {
+            String userId = extractUserId(tokenJson);
+            if (userId != null) {
+                stringRedisTemplate.opsForSet().remove(buildLoginTokensKey(userId), token.trim());
+            }
+        }
+        stringRedisTemplate.delete(tokenKey);
+    }
+
+    private String extractUserId(String tokenJson) {
+        try {
+            LoginTokenVO loginToken = objectMapper.readValue(tokenJson, LoginTokenVO.class);
+            return loginToken.getUserId();
+        } catch (JsonProcessingException ex) {
+            return null;
+        }
+    }
+
     public LoginVO loginByUserId(String userId, String loginIp) {
         Long parsedUserId = parseUserId(userId);
         AuthAccount account = authAccountMapper.selectById(parsedUserId);
@@ -88,6 +119,23 @@ public class LoginService {
             throw new IllegalArgumentException("账号状态异常");
         }
         return buildLoginResult(account, loginIp);
+    }
+
+    public List<ThirdAccountVO> getBindings(String userId) {
+        Long userLong = parseUserId(userId);
+        List<AuthThirdAccount> accounts = authThirdAccountMapper.selectList(
+                new LambdaQueryWrapper<AuthThirdAccount>().eq(AuthThirdAccount::getUserId, userLong));
+        return accounts.stream().map(this::toThirdAccountVO).toList();
+    }
+
+    private ThirdAccountVO toThirdAccountVO(AuthThirdAccount account) {
+        return new ThirdAccountVO(
+                String.valueOf(account.getId()),
+                String.valueOf(account.getUserId()),
+                account.getProvider(),
+                account.getOpenId(),
+                account.getCreateTime()
+        );
     }
 
     private LoginVO buildLoginResult(AuthAccount account, String loginIp) {

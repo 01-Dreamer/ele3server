@@ -144,6 +144,15 @@ auth:email:captcha:{scene}:{email}
 # risk-service 图形验证码 -> code，TTL = captcha.text.ttl
 risk:captcha:text:{captchaId}
 
+# risk-service 用户风险上下文 -> JSON，包含 lastIp、lastUserAgent、updateTime；风险分直接使用该 key 的剩余 TTL 秒数，risk 增加即延长 TTL，按登录用户维度累计并自然递减
+risk:score:user:{userId}
+
+# user-service 用户资料缓存 -> UserVO，TTL = user.cache.ttl + 随机抖动，修改用户资料时刷新；不存在用户使用短 TTL 空值缓存防穿透
+user:info:{userId}
+
+# user-service 用户资料回源互斥锁 -> 简单标量，短 TTL，用于防止热点 key 击穿
+user:lock:info:{userId}
+
 # tianai-captcha 滑块验证码相关 key 使用 captcha.prefix 控制，当前前缀为 risk:captcha
 risk:captcha:...
 
@@ -158,6 +167,12 @@ shop:lock:{scene}:{identifier}
 
 # shop-service ES索引延迟派发去重锁 -> 简单标量，TTL 与 MQ 延迟时间一致，用于合并评价/销量频繁变更
 shop:es:index-delay:{shopId}
+
+# shop-service 当日热搜关键词 -> ZSet(query -> score)，按 yyyyMMdd 分 key，TTL = shop.search.hot-ttl
+shop:search:hot:{yyyyMMdd}
+
+# shop-service 搜索提示 -> ZSet(fullQuery -> score)，prefix 为用户输入前缀，TTL = shop.search.suggest-ttl
+shop:search:suggest:{prefix}
 ```
 
 新增 Redis Key 时先检查是否能复用上面的结构；如果需要新增一类长期 key，要在本节补充用途、value 类型和 TTL 策略。
