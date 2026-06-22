@@ -3,6 +3,9 @@ package top.zxylearn.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+
+import lombok.extern.slf4j.Slf4j;
+
 import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +32,7 @@ import top.zxylearn.entity.OrderItem;
 import top.zxylearn.mapper.OrderItemMapper;
 import top.zxylearn.mapper.OrderMapper;
 import top.zxylearn.result.Result;
+import top.zxylearn.dto.message.WebSocketMessageDTO;
 import top.zxylearn.vo.OrderItemVO;
 import top.zxylearn.vo.OrderVO;
 import top.zxylearn.vo.PageVO;
@@ -37,8 +41,10 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @Service
 public class OrderService {
 
@@ -177,6 +183,7 @@ public class OrderService {
         call(paymentClient.closeAlipayOrderByOrderId(orderId), "支付订单关闭失败");
         call(paymentClient.deductBalance(new PaymentWalletDeductRequest(String.valueOf(order.getUserId()), order.getAmount())), "钱包扣款失败");
         updateStatus(order.getId(), STATUS_PENDING_PAYMENT, STATUS_WAIT_ACCEPT, "订单状态已变更");
+        sendNotice(String.valueOf(order.getShopOwnerId()), "新订单", "您有新的订单「" + order.getShopName() + "」待接单");
     }
 
     @GlobalTransactional(name = "cancel-order", rollbackFor = Exception.class)
@@ -191,6 +198,7 @@ public class OrderService {
         Order order = getOrder(orderId);
         checkShopOwner(merchantId, order);
         updateStatus(order.getId(), STATUS_WAIT_ACCEPT, STATUS_WAIT_DELIVERY, "只有待接单订单可以接单");
+        sendNotice(String.valueOf(order.getUserId()), "商家已接单", "您的订单「" + order.getShopName() + "」已被商家接单，正在准备中");
         BigDecimal merchantAmount = order.getAmount().subtract(order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee());
         if (merchantAmount.compareTo(BigDecimal.ZERO) > 0) {
             call(paymentClient.addBalance(new PaymentWalletAddRequest(merchantId, merchantAmount)), "商家钱包加款失败");
@@ -202,6 +210,7 @@ public class OrderService {
         Order order = getOrder(orderId);
         checkShopOwner(merchantId, order);
         updateStatus(order.getId(), STATUS_WAIT_ACCEPT, STATUS_CANCELLED, "只有待接单订单可以拒单");
+        sendNotice(String.valueOf(order.getUserId()), "商家已拒单", "您的订单「" + order.getShopName() + "」已被商家拒单");
         refundBuyer(order);
     }
 
@@ -217,6 +226,8 @@ public class OrderService {
         if (updated <= 0) {
             throw new IllegalArgumentException("只有待配送订单可以由骑手接单");
         }
+        Order order = getOrder(String.valueOf(normalizedOrderId));
+        sendNotice(String.valueOf(order.getUserId()), "骑手已接单", "您的订单「" + order.getShopName() + "」骑手已接单，正在赶来");
     }
 
     @GlobalTransactional(name = "rider-arrive-order", rollbackFor = Exception.class)
@@ -227,6 +238,7 @@ public class OrderService {
             throw new IllegalArgumentException("只能完成自己接单的订单");
         }
         updateStatus(order.getId(), STATUS_WAIT_ARRIVE, STATUS_WAIT_REVIEW, "只有待送达订单可以确认送达");
+        sendNotice(String.valueOf(order.getUserId()), "订单已送达", "您的订单「" + order.getShopName() + "」已送达，请评价");
         BigDecimal deliveryFee = order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee();
         if (deliveryFee.compareTo(BigDecimal.ZERO) > 0) {
             call(paymentClient.addBalance(new PaymentWalletAddRequest(String.valueOf(normalizedRiderId), deliveryFee)), "骑手钱包加款失败");
@@ -250,6 +262,7 @@ public class OrderService {
         )), "店铺评价创建失败");
         call(shopClient.increaseSales(new ShopSalesIncreaseRequest(String.valueOf(order.getShopId()), sumQuantity(order.getId()))), "店铺销量更新失败");
         updateStatus(order.getId(), STATUS_WAIT_REVIEW, STATUS_FINISHED, "订单状态已变更");
+        sendNotice(String.valueOf(order.getShopOwnerId()), "新评价", "您的店铺「" + order.getShopName() + "」收到一条新评价");
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -259,6 +272,8 @@ public class OrderService {
         }
         Long orderId = parseLongId(request.getOrderId(), "订单ID");
         updateStatus(orderId, STATUS_PENDING_PAYMENT, STATUS_WAIT_ACCEPT, "只有待支付订单可以修改为待接单");
+        Order order = getOrder(String.valueOf(orderId));
+        sendNotice(String.valueOf(order.getShopOwnerId()), "新订单", "您有新的订单「" + order.getShopName() + "」待接单");
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -335,6 +350,16 @@ public class OrderService {
 
     private String buildCreateTokenKey(String userId, String token) {
         return CREATE_TOKEN_KEY_PREFIX + userId + ":" + token;
+    }
+
+    private void sendNotice(String receiverId, String title, String content) {
+        try {
+            WebSocketMessageDTO<Map<String, String>> dto = WebSocketMessageDTO.notice(
+                    receiverId, Map.of("title", title, "content", content));
+            rabbitTemplate.convertAndSend(MqConstants.MESSAGE_EXCHANGE, MqConstants.MESSAGE_WS_ROUTING_KEY, dto);
+        } catch (RuntimeException ex) {
+            log.warn("订单通知发送失败 receiverId={}, title={}", receiverId, title, ex);
+        }
     }
 
     private boolean hasText(String value) {

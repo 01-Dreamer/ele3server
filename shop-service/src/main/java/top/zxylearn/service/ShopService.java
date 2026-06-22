@@ -33,6 +33,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import top.zxylearn.constant.MqConstants;
 import top.zxylearn.document.ShopDocument;
+import top.zxylearn.dto.message.WebSocketMessageDTO;
 import top.zxylearn.dto.ShopCreateRequest;
 import top.zxylearn.dto.ShopItemCreateRequest;
 import top.zxylearn.dto.ShopItemSwapRequest;
@@ -496,7 +497,7 @@ public class ShopService {
         Long atUserId = parseNullableLongId(request.getAtUserId(), "被@用户ID");
         String content = checkRequiredText(request.getContent(), 2000, "回复内容");
 
-        getAvailableReview(String.valueOf(reviewId));
+        ShopReview review = getAvailableReview(String.valueOf(reviewId));
 
         ShopReviewReply reply = new ShopReviewReply();
         reply.setReviewId(reviewId);
@@ -504,6 +505,18 @@ public class ShopService {
         reply.setAtUserId(atUserId);
         reply.setContent(content);
         shopReviewReplyMapper.insert(reply);
+
+        String snippet = review.getContent() != null && review.getContent().length() > 30
+                ? review.getContent().substring(0, 30) + "…" : review.getContent();
+        String noticeContent = "您的评论「" + snippet + "」被回复";
+        // 通知原评论者
+        if (!replyUserId.equals(review.getUserId())) {
+            sendMqNotice(String.valueOf(review.getUserId()), "评论被回复", noticeContent);
+        }
+        // 通知被@用户
+        if (atUserId != null && !atUserId.equals(replyUserId) && !atUserId.equals(review.getUserId())) {
+            sendMqNotice(String.valueOf(atUserId), "评论被回复", noticeContent);
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -1660,6 +1673,16 @@ public class ShopService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private void sendMqNotice(String receiverId, String title, String content) {
+        try {
+            WebSocketMessageDTO<Map<String, String>> dto = WebSocketMessageDTO.notice(
+                    receiverId, Map.of("title", title, "content", content));
+            rabbitTemplate.convertAndSend(MqConstants.MESSAGE_EXCHANGE, MqConstants.MESSAGE_WS_ROUTING_KEY, dto);
+        } catch (RuntimeException ex) {
+            log.warn("通知发送失败 receiverId={}, title={}", receiverId, title, ex);
+        }
     }
 
     private void publishOldImageDeleteAfterCommit(String oldUrl, String newUrl) {
