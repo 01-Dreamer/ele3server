@@ -445,7 +445,6 @@ public class AgentChatService {
     }
 
     // ---- 工具定义 ----
-
     private List<Map<String, Object>> buildToolDefinitions() {
         return List.of(
                 toolDef("search_shops", "搜索附近店铺。参数：keyword(关键词,可选)，longitude(可选)，latitude(可选)，sort(排序:rating/sales,可选)，size(条数,可选)",
@@ -477,8 +476,6 @@ public class AgentChatService {
         tool.put("function", function);
         return tool;
     }
-
-    // ---- 存库 ----
 
     private String reply(Long uid, String userContent, String agentContent) {
         saveChatAsync(uid, ROLE_USER, userContent);

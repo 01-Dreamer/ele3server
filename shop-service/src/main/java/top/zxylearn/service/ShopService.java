@@ -699,14 +699,12 @@ public class ShopService {
         BigDecimal normalizedLongitude = hasLongitude ? checkLongitude(longitude) : null;
         BigDecimal normalizedLatitude = hasLatitude ? checkLatitude(latitude) : null;
 
-        // 有关键词：_score + id = 2；无关键词：有坐标 3、无坐标 2
         int expectedSortValues = hasText(normalizedQuery) ? 2 : (hasLongitude ? 3 : 2);
         Object[] searchAfter = parseSearchAfterCursor(cursor, expectedSortValues);
         return searchShopsFromEs(normalizedLongitude, normalizedLatitude, normalizedQuery, normalizedSort, searchAfter, pageSize);
     }
 
     // ======================== ES 搜索 ========================
-
     private CursorPageVO<ShopVO> searchShopsFromEs(BigDecimal longitude,
                                                    BigDecimal latitude,
                                                    String keyword,
@@ -719,7 +717,6 @@ public class ShopService {
         Set<Long> seenIds = new LinkedHashSet<>();
         List<Object> lastRecordSortValues = null;
 
-        // 首页：递进半径；翻页：直接不限半径，避免游标和半径变化冲突
         List<Double> radiusPlan = searchAfter != null
                 ? java.util.Collections.singletonList(null)
                 : buildSearchRadiusPlan(longitude);
@@ -731,7 +728,6 @@ public class ShopService {
                 if (hitList.isEmpty()) {
                     break;
                 }
-                // 记录每条命中对应的 sortValues，供通过后使用
                 Map<Long, List<Object>> sortValuesMap = new LinkedHashMap<>();
                 List<Long> ids = new ArrayList<>();
                 for (SearchHit<ShopDocument> hit : hitList) {
@@ -774,7 +770,6 @@ public class ShopService {
             records = records.subList(0, pageSize);
         }
 
-        // 用最后一条实际返回记录的 sortValues 生成游标
         String nextCursor = null;
         if (hasMore && lastRecordSortValues != null) {
             nextCursor = encodeSearchAfterCursorFromSortValues(lastRecordSortValues);
@@ -782,15 +777,11 @@ public class ShopService {
         return new CursorPageVO<>(records, nextCursor, hasMore);
     }
 
-    // ======================== ES 半径计划 ========================
-
     private static final List<Double> SEARCH_RADIUS_PLAN = java.util.Arrays.asList(5.0, 10.0, 30.0, 50.0, null);
 
     private List<Double> buildSearchRadiusPlan(BigDecimal longitude) {
         return longitude != null ? SEARCH_RADIUS_PLAN : java.util.Collections.singletonList(null);
     }
-
-    // ======================== ES 查询构建 ========================
 
     private Query buildShopSearchQuery(BigDecimal longitude,
                                        BigDecimal latitude,
