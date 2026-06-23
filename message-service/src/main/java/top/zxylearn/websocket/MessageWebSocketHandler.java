@@ -12,6 +12,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import top.zxylearn.constant.MqConstants;
 import top.zxylearn.dto.message.WebSocketMessageDTO;
+import top.zxylearn.dto.risk.RiskTextRecordCreateEventDTO;
 
 @Slf4j
 @Component
@@ -85,6 +86,7 @@ public class MessageWebSocketHandler extends TextWebSocketHandler {
         mqDto.setTimestamp(dto.getTimestamp());
         try {
             rabbitTemplate.convertAndSend(MqConstants.MESSAGE_EXCHANGE, MqConstants.MESSAGE_WS_ROUTING_KEY, mqDto);
+            sendRiskEvent(dto.getSenderId(), content);
         } catch (RuntimeException ex) {
             log.warn("WebSocket CHAT消息投递MQ失败 senderId={}, receiverId={}", dto.getSenderId(), dto.getReceiverId(), ex);
         }
@@ -148,6 +150,16 @@ public class MessageWebSocketHandler extends TextWebSocketHandler {
     private String getUserId(WebSocketSession session) {
         Object userId = session.getAttributes().get(UserIdHandshakeInterceptor.USER_ID_ATTRIBUTE);
         return userId == null ? null : String.valueOf(userId);
+    }
+
+    private void sendRiskEvent(String senderId, String content) {
+        if (!hasText(content)) return;
+        try {
+            rabbitTemplate.convertAndSend(MqConstants.RISK_EXCHANGE, MqConstants.RISK_TEXT_RECORD_ROUTING_KEY,
+                    new RiskTextRecordCreateEventDTO("MESSAGE", "0", senderId, content));
+        } catch (RuntimeException ex) {
+            log.warn("风控文本事件发送失败", ex);
+        }
     }
 
     private boolean hasText(String value) {

@@ -36,7 +36,7 @@ public class InternalController {
     }
 
     @Operation(summary = "获取今日热搜")
-    @GetMapping("/hot-search")
+    @GetMapping("/agent/hot-search")
     public Result<List<String>> hotSearch() {
         try {
             return Result.success(shopService.listHotSearch());
@@ -49,7 +49,7 @@ public class InternalController {
     }
 
     @Operation(summary = "搜索店铺（内部，ES）")
-    @GetMapping("/search-shops")
+    @GetMapping("/agent/search-shops")
     public Result<CursorPageVO<ShopVO>> searchShops(
             @RequestParam("userId") String userId,
             @RequestParam(value = "keyword", required = false) String keyword,
@@ -69,7 +69,7 @@ public class InternalController {
     }
 
     @Operation(summary = "获取店铺详情（内部，含权限校验）")
-    @GetMapping("/shop-detail")
+    @GetMapping("/agent/shop-detail")
     public Result<ShopVO> getShopDetail(@RequestParam("userId") String userId,
                                          @RequestParam("shopId") String shopId) {
         try {

@@ -42,6 +42,7 @@ import top.zxylearn.dto.ShopReviewReplyRequest;
 import top.zxylearn.dto.ShopStatusUpdateRequest;
 import top.zxylearn.dto.ShopUpdateRequest;
 import top.zxylearn.dto.shop.ShopEsIndexEventDTO;
+import top.zxylearn.dto.risk.RiskTextRecordCreateEventDTO;
 import top.zxylearn.dto.shop.ShopBillCreateRequest;
 import top.zxylearn.dto.shop.ShopBillVO;
 import top.zxylearn.dto.shop.ShopReviewCreateRequest;
@@ -201,6 +202,7 @@ public class ShopService {
         shop.setSalesCount(0L);
         shop.setStatus(STATUS_NORMAL);
         shopMapper.insert(shop);
+        publishRiskText("SHOP", String.valueOf(shop.getId()), userId, shop.getName() + " " + shop.getDescription());
         ShopVO shopVO = toShopVO(shop);
         cacheShop(shopVO);
         publishShopEsIndexAfterCommit(shop.getId(), ShopEsIndexEventDTO.ACTION_UPSERT);
@@ -216,6 +218,7 @@ public class ShopService {
         checkShopAvailable(shop);
         if (hasText(request.getName())) {
             shop.setName(checkRequiredText(request.getName(), 100, "店铺名称"));
+            publishRiskText("SHOP", shopId, userId, shop.getName());
         }
         if (hasText(request.getAvatar())) {
             String avatar = checkOptionalText(request.getAvatar(), 500, "店铺头像URL");
@@ -224,6 +227,7 @@ public class ShopService {
         }
         if (hasText(request.getDescription())) {
             shop.setDescription(checkRequiredText(request.getDescription(), 500, "店铺描述"));
+            publishRiskText("SHOP", shopId, userId, shop.getDescription());
         }
         if (hasText(request.getAddress())) {
             shop.setAddress(checkRequiredText(request.getAddress(), 255, "店铺地址"));
@@ -266,6 +270,7 @@ public class ShopService {
         item.setSort(0L); // 临时值，insert 后替换为雪花 ID
         item.setStatus(STATUS_NORMAL);
         shopItemMapper.insert(item);
+        publishRiskText("SHOP_ITEM", String.valueOf(item.getId()), userId, item.getName() + " " + item.getDescription());
         item.setSort(item.getId());
         shopItemMapper.updateById(item);
         refreshShopItemListCache(shop.getId());
@@ -295,6 +300,7 @@ public class ShopService {
         boolean changed = false;
         if (hasText(request.getName())) {
             item.setName(checkRequiredText(request.getName(), 100, "商品名称"));
+            publishRiskText("SHOP_ITEM", itemId, userId, item.getName());
             changed = true;
         }
         if (request.getImage() != null) {
@@ -305,6 +311,7 @@ public class ShopService {
         }
         if (hasText(request.getDescription())) {
             item.setDescription(checkRequiredText(request.getDescription(), 500, "商品描述"));
+            publishRiskText("SHOP_ITEM", itemId, userId, item.getDescription());
             changed = true;
         }
         if (request.getPrice() != null) {
@@ -505,6 +512,7 @@ public class ShopService {
         reply.setAtUserId(atUserId);
         reply.setContent(content);
         shopReviewReplyMapper.insert(reply);
+        publishRiskText("REVIEW_REPLY", String.valueOf(reply.getId()), userId, content);
 
         String snippet = review.getContent() != null && review.getContent().length() > 30
                 ? review.getContent().substring(0, 30) + "…" : review.getContent();
@@ -541,6 +549,7 @@ public class ShopService {
         review.setScore(score);
         review.setContent(content);
         shopReviewMapper.insert(review);
+        publishRiskText("REVIEW", String.valueOf(review.getId()), String.valueOf(userId), content);
 
         for (int i = 0; i < images.size(); i++) {
             ShopReviewImage image = new ShopReviewImage();
@@ -1673,6 +1682,16 @@ public class ShopService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private void publishRiskText(String sourceType, String sourceId, String userId, String content) {
+        if (!hasText(content)) return;
+        try {
+            rabbitTemplate.convertAndSend(MqConstants.RISK_EXCHANGE, MqConstants.RISK_TEXT_RECORD_ROUTING_KEY,
+                    new RiskTextRecordCreateEventDTO(sourceType, sourceId, userId, content));
+        } catch (RuntimeException ex) {
+            log.warn("风控文本事件发送失败", ex);
+        }
     }
 
     private void sendMqNotice(String receiverId, String title, String content) {

@@ -256,6 +256,30 @@ public class PaymentService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    public PaymentCreateVO refreshAlipayOrder(String paymentId, Integer expireMinutes) {
+        Payment old = getPayment(paymentId);
+        if (!CHANNEL_ALIPAY.equals(old.getChannel())) {
+            throw new IllegalArgumentException("只支持刷新支付宝支付订单");
+        }
+        if (!Integer.valueOf(STATUS_PENDING).equals(old.getStatus())) {
+            throw new IllegalArgumentException("只有待支付订单可以刷新");
+        }
+        // 尝试关闭支付宝交易（失败不管）
+        try { closeAlipayTrade(old); } catch (RuntimeException ignored) {}
+        // 旧支付标记为取消
+        paymentMapper.update(null, new LambdaUpdateWrapper<Payment>()
+                .set(Payment::getStatus, STATUS_CANCELLED)
+                .eq(Payment::getId, old.getId())
+                .eq(Payment::getStatus, STATUS_PENDING));
+
+        // 创建新支付记录
+        int expireMin = expireMinutes != null && expireMinutes > 0 ? expireMinutes : 30;
+        Payment payment = buildPendingAlipayPayment(
+                old.getSubject(), old.getBusinessType(), old.getBusinessId(), old.getAmount());
+        return createAlipayOrder(payment, expireMin);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
     public void refundAlipayOrderByOrderId(PaymentOrderRefundRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("订单ID不能为空");

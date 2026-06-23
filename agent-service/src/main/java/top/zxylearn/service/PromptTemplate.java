@@ -33,7 +33,8 @@ public class PromptTemplate {
         sj.add("1. search_shops - 搜索附近店铺。参数：keyword(关键词)，sort(排序方式：rating/sales)。");
         sj.add("2. get_shop_detail - 获取店铺详情和商品列表。参数：shopId。");
         sj.add("3. get_order_status - 查询订单状态。参数：orderId。");
-        sj.add("4. recommend_items - 智能推荐商品。参数：longitude，latitude，budget(可选预算)。");
+        sj.add("4. recommend_items - 智能推荐附近高评分商品。参数：keyword(可选)，longitude(可选)，latitude(可选)。");
+        sj.add("5. get_hot_search - 获取今日热搜关键词列表。无参数。");
         return sj.toString();
     }
 

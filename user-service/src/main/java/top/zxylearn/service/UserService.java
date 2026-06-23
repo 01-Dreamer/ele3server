@@ -15,9 +15,12 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import top.zxylearn.constant.MqConstants;
 import top.zxylearn.dto.UserLocationCreateRequest;
 import top.zxylearn.dto.UserUpdateRequest;
+import top.zxylearn.dto.risk.RiskTextRecordCreateEventDTO;
 import top.zxylearn.dto.user.UserCreateRequest;
 import top.zxylearn.entity.User;
 import top.zxylearn.entity.UserLocation;
@@ -38,6 +41,7 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 public class UserService {
 
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
     private static final String DEFAULT_NICKNAME = "饿了么用户";
     private static final BigDecimal MIN_LONGITUDE = new BigDecimal("-180");
     private static final BigDecimal MAX_LONGITUDE = new BigDecimal("180");
@@ -122,6 +126,7 @@ public class UserService {
         if (hasText(request.getNickname())) {
             String nickname = request.getNickname().trim();
             checkLength(nickname, 50, "昵称");
+            publishRiskText("NICKNAME", userId, nickname);
             user.setNickname(nickname);
             changed = true;
         }
@@ -421,6 +426,16 @@ public class UserService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private void publishRiskText(String sourceType, String sourceId, String content) {
+        if (!hasText(content)) return;
+        try {
+            rabbitTemplate.convertAndSend(MqConstants.RISK_EXCHANGE, MqConstants.RISK_TEXT_RECORD_ROUTING_KEY,
+                    new RiskTextRecordCreateEventDTO(sourceType, sourceId, sourceId, content));
+        } catch (RuntimeException ex) {
+            log.warn("风控文本事件发送失败", ex);
+        }
     }
 
     private void publishOldImageDeleteAfterCommit(String oldUrl, String newUrl) {

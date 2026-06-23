@@ -39,7 +39,7 @@ public class InternalController {
     }
 
     @Operation(summary = "获取用户最近的订单列表")
-    @GetMapping("/list-recent")
+    @GetMapping("/agent/list-recent")
     public Result<PageVO<OrderVO>> listRecentOrders(@RequestParam("userId") String userId,
                                                       @RequestParam(value = "limit", required = false) Integer limit) {
         try {
@@ -52,7 +52,7 @@ public class InternalController {
     }
 
     @Operation(summary = "获取订单详情（内部，含权限校验）")
-    @GetMapping("/detail")
+    @GetMapping("/agent/detail")
     public Result<OrderVO> getOrderDetail(@RequestParam("userId") String userId,
                                            @RequestParam("orderId") String orderId) {
         try {

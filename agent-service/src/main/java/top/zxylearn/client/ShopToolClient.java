@@ -12,10 +12,10 @@ import java.util.Map;
 @FeignClient(name = "shop-service")
 public interface ShopToolClient {
 
-    @GetMapping("/internal/shop/hot-search")
+    @GetMapping("/internal/shop/agent/hot-search")
     Result<List<String>> hotSearch();
 
-    @GetMapping("/internal/shop/search-shops")
+    @GetMapping("/internal/shop/agent/search-shops")
     Result<Map<String, Object>> searchShops(@RequestParam("userId") String userId,
                                              @RequestParam(value = "keyword", required = false) String keyword,
                                              @RequestParam(value = "longitude", required = false) BigDecimal longitude,
@@ -24,7 +24,7 @@ public interface ShopToolClient {
                                              @RequestParam(value = "cursor", required = false) String cursor,
                                              @RequestParam(value = "size", required = false) Integer size);
 
-    @GetMapping("/internal/shop/shop-detail")
+    @GetMapping("/internal/shop/agent/shop-detail")
     Result<Map<String, Object>> getShopDetail(@RequestParam("userId") String userId,
                                                @RequestParam("shopId") String shopId);
 }

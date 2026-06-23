@@ -10,11 +10,11 @@ import java.util.Map;
 @FeignClient(name = "order-service")
 public interface OrderToolClient {
 
-    @GetMapping("/internal/order/list-recent")
+    @GetMapping("/internal/order/agent/list-recent")
     Result<Map<String, Object>> listRecentOrders(@RequestParam("userId") String userId,
                                                    @RequestParam(value = "limit", required = false) Integer limit);
 
-    @GetMapping("/internal/order/detail")
+    @GetMapping("/internal/order/agent/detail")
     Result<Map<String, Object>> getOrderDetail(@RequestParam("userId") String userId,
                                                 @RequestParam("orderId") String orderId);
 }

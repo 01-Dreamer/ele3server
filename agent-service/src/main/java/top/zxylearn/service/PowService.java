@@ -1,7 +1,5 @@
 package top.zxylearn.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -11,6 +9,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Map;
 
@@ -18,62 +18,96 @@ import java.util.Map;
 public class PowService {
 
     private static final String CHALLENGE_KEY_PREFIX = "agent:pow:challenge:";
+    private static final String RATE_KEY_PREFIX = "agent:pow:rate:";
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final int MIN_DIFFICULTY = 3;
+    private static final int MAX_DIFFICULTY = 6;
+    private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
 
     private final StringRedisTemplate stringRedisTemplate;
     private final Duration challengeTtl;
 
     public PowService(StringRedisTemplate stringRedisTemplate,
-                        @Value("${agent.pow.challenge-ttl}") Duration challengeTtl) {
+                      @Value("${agent.pow.challenge-ttl}") Duration challengeTtl) {
         this.stringRedisTemplate = stringRedisTemplate;
         this.challengeTtl = challengeTtl;
     }
 
     public Map<String, Object> getChallenge(String userId) {
+        int difficulty = calcDifficulty(userId);
+
         byte[] bytes = new byte[16];
         RANDOM.nextBytes(bytes);
         String challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+
         stringRedisTemplate.opsForValue()
-                .set(CHALLENGE_KEY_PREFIX + userId + ":" + challenge, "1", challengeTtl);
-        return Map.of("challenge", challenge, "difficulty", (Object) 3,
+                .set(CHALLENGE_KEY_PREFIX + userId + ":" + challenge,
+                        String.valueOf(difficulty), challengeTtl);
+
+        return Map.of("challenge", challenge, "difficulty", (Object) difficulty,
                 "expireSeconds", challengeTtl.getSeconds());
     }
 
-    /**
-     * 验证 PoW。powResponse 格式: "nonce:answer:hash"
-     */
-    public boolean verifyPow(String userId, String powResponse, int difficulty) {
+    private int calcDifficulty(String userId) {
+        String rateKey = RATE_KEY_PREFIX + userId;
+        Long count = stringRedisTemplate.opsForValue().increment(rateKey);
+        if (count != null && count == 1) {
+            stringRedisTemplate.expire(rateKey, RATE_WINDOW);
+        }
+        long c = count == null ? 0 : count;
+        int difficulty = MIN_DIFFICULTY + (int) (c / 5);
+        return Math.min(difficulty, MAX_DIFFICULTY);
+    }
+
+    public String extractNonce(String userId, String powResponse, boolean consume) {
         if (powResponse == null || powResponse.isBlank()) {
-            return false;
+            return null;
         }
         String[] parts = powResponse.trim().split(":");
         if (parts.length != 3) {
-            return false;
+            return null;
         }
         String nonce = parts[0];
         int answer;
         try {
             answer = Integer.parseInt(parts[1]);
         } catch (NumberFormatException ex) {
-            return false;
+            return null;
         }
         String expectedHash = parts[2];
 
-        // Verify challenge exists in Redis (not expired, bound to this user)
         String key = CHALLENGE_KEY_PREFIX + userId + ":" + nonce;
-        if (!Boolean.TRUE.equals(stringRedisTemplate.delete(key))) {
-            return false;
+        String difficultyStr = stringRedisTemplate.opsForValue().get(key);
+        if (difficultyStr == null) {
+            return null;
+        }
+        int difficulty;
+        try {
+            difficulty = Integer.parseInt(difficultyStr);
+        } catch (NumberFormatException ex) {
+            return null;
         }
 
-        // Verify hash = SHA256(nonce + ":" + answer)
         String raw = nonce + ":" + answer;
         String actualHash = sha256Hex(raw);
         if (!actualHash.equals(expectedHash)) {
-            return false;
+            return null;
         }
 
-        return checkDifficulty(actualHash, difficulty);
+        if (!checkDifficulty(actualHash, difficulty)) {
+            return null;
+        }
+
+        if (consume) {
+            stringRedisTemplate.delete(key);
+        }
+        return nonce;
+    }
+
+    public void consumeChallenge(String userId, String nonce) {
+        if (nonce != null) {
+            stringRedisTemplate.delete(CHALLENGE_KEY_PREFIX + userId + ":" + nonce);
+        }
     }
 
     private String sha256Hex(String input) {

@@ -3,6 +3,7 @@ package top.zxylearn.controller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -79,6 +80,19 @@ public class ApiController {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {
             return Result.fail(500, "支付状态获取失败");
+        }
+    }
+
+    @Operation(summary = "刷新支付宝支付二维码")
+    @PostMapping("/refresh-alipay/{paymentId}")
+    public Result<PaymentCreateVO> refreshAlipay(@PathVariable String paymentId,
+                                                  @RequestParam(value = "expireMinutes", required = false) Integer expireMinutes) {
+        try {
+            return Result.success(paymentService.refreshAlipayOrder(paymentId, expireMinutes));
+        } catch (IllegalArgumentException ex) {
+            return Result.fail(400, ex.getMessage());
+        } catch (RuntimeException ex) {
+            return Result.fail(500, ex.getMessage() == null ? "支付二维码刷新失败" : ex.getMessage());
         }
     }
 
