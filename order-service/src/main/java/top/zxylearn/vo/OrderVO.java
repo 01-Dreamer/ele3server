@@ -29,6 +29,7 @@ public class OrderVO {
     private BigDecimal deliveryFee;
     private BigDecimal amount;
     private Integer status;
+    private String statusText;
     private LocalDateTime expireTime;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

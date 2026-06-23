@@ -266,6 +266,11 @@ public class OrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    public OrderVO getOrderDetail(String userId, String orderId) {
+        Order order = getOwnOrder(userId, orderId);
+        return toOrderVO(order, selectOrderItems(order.getId()));
+    }
+
     public void markPaid(OrderPaidRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("订单ID不能为空");
@@ -427,6 +432,21 @@ public class OrderService {
         return order;
     }
 
+    private String statusText(Integer status) {
+        if (status == null) return "未知";
+        return switch (status) {
+            case STATUS_PENDING_PAYMENT -> "待支付";
+            case STATUS_WAIT_ACCEPT -> "待接单";
+            case STATUS_WAIT_DELIVERY -> "待配送";
+            case STATUS_WAIT_ARRIVE -> "待送达";
+            case STATUS_WAIT_REVIEW -> "待评价";
+            case STATUS_FINISHED -> "已完成";
+            case STATUS_EXPIRED -> "已过期";
+            case STATUS_CANCELLED -> "已取消";
+            default -> "未知";
+        };
+    }
+
     private void checkStatus(Order order, int expectedStatus, String message) {
         if (order.getStatus() == null || order.getStatus() != expectedStatus) {
             throw new IllegalArgumentException(message);
@@ -486,6 +506,7 @@ public class OrderService {
                 order.getDeliveryFee(),
                 order.getAmount(),
                 order.getStatus(),
+                statusText(order.getStatus()),
                 order.getExpireTime(),
                 order.getCreateTime(),
                 order.getUpdateTime(),
