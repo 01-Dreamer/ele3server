@@ -704,7 +704,17 @@ public class ShopService {
         return searchShopsFromEs(normalizedLongitude, normalizedLatitude, normalizedQuery, normalizedSort, searchAfter, pageSize);
     }
 
-    // ======================== ES 搜索 ========================
+    public CursorPageVO<ShopVO> searchShopsFromMysql(String cursor, Integer size) {
+        LambdaQueryWrapper<Shop> wrapper = new LambdaQueryWrapper<Shop>()
+                .eq(Shop::getStatus, STATUS_NORMAL)
+                .orderByDesc(Shop::getReviewScore)
+                .last("LIMIT 10");
+        List<Shop> shops = shopMapper.selectList(wrapper);
+        shops = shops.stream().filter(this::isShopVisibleNow).toList();
+        List<ShopVO> records = shops.stream().map(this::toShopVO).toList();
+        return new CursorPageVO<>(records, null, false);
+    }
+
     private CursorPageVO<ShopVO> searchShopsFromEs(BigDecimal longitude,
                                                    BigDecimal latitude,
                                                    String keyword,

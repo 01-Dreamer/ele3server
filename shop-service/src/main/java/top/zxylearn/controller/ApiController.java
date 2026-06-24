@@ -21,6 +21,7 @@ import top.zxylearn.dto.ShopItemUpdateRequest;
 import top.zxylearn.dto.ShopReviewReplyRequest;
 import top.zxylearn.dto.ShopUpdateRequest;
 import top.zxylearn.result.Result;
+import top.zxylearn.service.ShopSearchResilienceService;
 import top.zxylearn.service.ShopService;
 import top.zxylearn.vo.CursorPageVO;
 import top.zxylearn.vo.PageVO;
@@ -40,9 +41,11 @@ public class ApiController {
     private static final Logger log = LoggerFactory.getLogger(ApiController.class);
 
     private final ShopService shopService;
+    private final ShopSearchResilienceService shopSearchResilienceService;
 
-    public ApiController(ShopService shopService) {
+    public ApiController(ShopService shopService, ShopSearchResilienceService shopSearchResilienceService) {
         this.shopService = shopService;
+        this.shopSearchResilienceService = shopSearchResilienceService;
     }
 
     @Operation(summary = "创建店铺")
@@ -202,7 +205,9 @@ public class ApiController {
                                                     @RequestParam(value = "cursor", required = false) String cursor,
                                                     @RequestParam(value = "size", required = false) Integer size) {
         try {
-            return Result.success(shopService.searchShops(longitude, latitude, query, sort, cursor, size));
+            return Result.success(shopSearchResilienceService.search(longitude, latitude, query, sort, cursor, size));
+        } catch (ShopSearchResilienceService.DegradationException ex) {
+            return new Result<>(200, "已降级查询", ex.getResult(), System.currentTimeMillis());
         } catch (IllegalArgumentException ex) {
             return Result.fail(400, ex.getMessage());
         } catch (RuntimeException ex) {

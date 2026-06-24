@@ -179,18 +179,18 @@ shop:es:index-delay:{shopId}
 spring:
   config:
     import:
-      - nacos:common-dev.yaml?group=ElE&refreshEnabled=true
+      - nacos:common-dev.yaml?group=ELE&refreshEnabled=true
   cloud:
     nacos:
       config:
-        group: ElE
+        group: ELE
         file-extension: yaml
 ```
 
 Nacos 公共配置约定：
 
 - Data ID：`common-dev.yaml`
-- Group：`ElE`
+- Group：`ELE`
 - 格式：`YAML`
 
 下面这些配置统一放在配置中心，不要散落在各微服务本地 `application.yml`：

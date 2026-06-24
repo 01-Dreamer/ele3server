@@ -57,7 +57,7 @@ public class OrderService {
     private static final int STATUS_EXPIRED = 6;
     private static final int STATUS_CANCELLED = 7;
 
-    private static final String CREATE_TOKEN_KEY_PREFIX = "order:create-token:";
+    private static final String CREATE_TOKEN_KEY_PREFIX = "order:token:";
     private static final int CREATE_TOKEN_TTL_SECONDS = 1800;
 
     private final OrderMapper orderMapper;

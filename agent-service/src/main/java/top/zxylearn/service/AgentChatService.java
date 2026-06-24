@@ -89,9 +89,15 @@ public class AgentChatService {
         String cached = stringRedisTemplate.opsForValue().get(key);
         if (cached != null && !cached.isBlank()) {
             try {
-                return objectMapper.readValue(cached, new TypeReference<List<Map<String, String>>>() {});
+                List<Map<String, String>> list = objectMapper.readValue(cached, new TypeReference<List<Map<String, String>>>() {});
+                list = list.stream().filter(m -> !"TOOL".equals(m.get("role"))).collect(Collectors.toList());
+                return list;
             } catch (Exception ignored) {}
         }
+        return loadHistoryFromMysql(userId, key);
+    }
+
+    private List<Map<String, String>> loadHistoryFromMysql(Long userId, String key) {
         List<AgentChat> records = agentChatMapper.selectList(
                 new LambdaQueryWrapper<AgentChat>()
                         .eq(AgentChat::getUserId, userId)
@@ -110,8 +116,22 @@ public class AgentChatService {
         return history;
     }
 
-    private void evictHistoryCache(Long userId) {
-        stringRedisTemplate.delete(HISTORY_KEY_PREFIX + userId);
+    private void appendHistoryCache(Long userId, String role, String content) {
+        String key = HISTORY_KEY_PREFIX + userId;
+        try {
+            String cached = stringRedisTemplate.opsForValue().get(key);
+            List<Map<String, String>> history;
+            if (cached != null && !cached.isBlank()) {
+                history = objectMapper.readValue(cached, new TypeReference<List<Map<String, String>>>() {});
+            } else {
+                history = new ArrayList<>();
+            }
+            history.add(Map.of("role", role, "content", content != null ? content : ""));
+            while (history.size() > HISTORY_SIZE) {
+                history.remove(0);
+            }
+            stringRedisTemplate.opsForValue().set(key, objectMapper.writeValueAsString(history), HISTORY_TTL);
+        } catch (Exception ignored) {}
     }
 
     // ==== 游标分页 ====
@@ -181,7 +201,12 @@ public class AgentChatService {
                 // history
                 List<Map<String, String>> history = loadHistory(uid);
                 for (Map<String, String> h : history) {
-                    addMessage(messages, h.get("role").equals("AGENT") ? "assistant" : "user", h.get("content"));
+                    String role = switch (h.get("role")) {
+                        case "AGENT" -> "assistant";
+                        case "TOOL" -> "tool";
+                        default -> "user";
+                    };
+                    addMessage(messages, role, h.get("content"));
                 }
 
                 // current context
@@ -198,7 +223,7 @@ public class AgentChatService {
                     body.put("model", model);
                     body.put("messages", messages);
                     body.put("tools", buildToolDefinitions());
-                    body.put("stream", false); // 工具调用阶段不流式
+                    body.put("stream", false);
 
                     Map<String, Object> response = callOpenAi(body);
                     Map<String, Object> choice = extractChoice(response);
@@ -232,13 +257,14 @@ public class AgentChatService {
                         continue;
                     }
 
-                    // 最后一轮：流式输出
+                    // 流式输出
                     String content = (String) message.getOrDefault("content", null);
                     if (content != null) {
                         emitter.send(SseEmitter.event().name("reply").data(content));
                         saveChatAsync(uid, ROLE_USER, request.getContent());
                         saveChatAsync(uid, ROLE_AGENT, content);
-                        evictHistoryCache(uid);
+                        appendHistoryCache(uid, ROLE_USER, request.getContent());
+                        appendHistoryCache(uid, ROLE_AGENT, content);
                         publishRiskText(userId, request.getContent());
                     }
                     emitter.complete();
@@ -256,8 +282,7 @@ public class AgentChatService {
         return emitter;
     }
 
-    // ---- ReAct 内部 ----
-
+    // ReAct循环
     private List<Map<String, Object>> buildInitialMessages(AgentChatRequest request) {
         List<Map<String, Object>> messages = new ArrayList<>();
 
@@ -308,12 +333,12 @@ public class AgentChatService {
         } catch (Exception ex) {
             result = "{\"error\":\"" + ex.getMessage() + "\"}";
         }
-        saveChatAsync(userId, ROLE_TOOL, "调用工具: " + toolName + "(" + args + ") → 结果: " + result);
+        String content = "调用工具: " + toolName + "(" + args + ") → 结果: " + result;
+        saveChatAsync(userId, ROLE_TOOL, content);
         return result;
     }
 
     // ---- 工具函数 ----
-
     private String searchShops(String args) {
         Map<String, Object> params = parseArgs(args);
         Result<Map<String, Object>> result = shopToolClient.searchShops(
@@ -351,15 +376,30 @@ public class AgentChatService {
 
     private String recommendItems(String args) {
         Map<String, Object> params = parseArgs(args);
-        Result<Map<String, Object>> result = shopToolClient.searchShops(
-                currentUserId,
-                str(params, "keyword"),
-                bd(params, "longitude"), bd(params, "latitude"),
-                "rating", null, 5);
-        return toJson(callResult(result));
+        Map<String, Object> recentOrders = null;
+        try {
+            Result<Map<String, Object>> orderResult = orderToolClient.listRecentOrders(currentUserId, 20);
+            if (orderResult != null && orderResult.getCode() == 200) {
+                recentOrders = orderResult.getData();
+            }
+        } catch (Exception ignored) {}
+        Map<String, Object> shops = null;
+        try {
+            Result<Map<String, Object>> shopResult = shopToolClient.searchShops(
+                    currentUserId,
+                    str(params, "keyword"),
+                    bd(params, "longitude"), bd(params, "latitude"),
+                    "rating", null, 10);
+            if (shopResult != null && shopResult.getCode() == 200) {
+                shops = shopResult.getData();
+            }
+        } catch (Exception ignored) {}
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("recentOrders", recentOrders);
+        result.put("nearbyShops", shops);
+        result.put("hint", "请根据用户最近的订单偏好和附近的店铺商品，综合推荐可能喜欢的商品");
+        return toJson(result);
     }
-
-    // ---- 内部结果提取 ----
 
     private <T> T callResult(Result<T> result) {
         if (result == null) return null;
